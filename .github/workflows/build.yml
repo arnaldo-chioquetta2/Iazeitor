@@ -1,0 +1,47 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+      - setup/governanca-inicial
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build DLL
+        shell: pwsh
+        run: dotnet build atcIA/DLL/GptBolDll.csproj
+
+      - name: Build principal com MSBuild
+        shell: pwsh
+        run: |
+          $msbuild = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+          if ($null -eq $msbuild) {
+            $candidates = @(
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles}\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+            )
+            $msbuildPath = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($null -eq $msbuildPath) {
+              Write-Host "MSBuild.exe nao encontrado. Pulando build principal."
+              exit 0
+            }
+            & $msbuildPath 'atcIA/atcIA.csproj' /t:Build /p:Configuration=Debug /m
+          } else {
+            & $msbuild.Source 'atcIA/atcIA.csproj' /t:Build /p:Configuration=Debug /m
+          }
