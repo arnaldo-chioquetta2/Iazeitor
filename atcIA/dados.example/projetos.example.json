@@ -1,0 +1,37 @@
+[
+  {
+    "Id": "00000000-0000-0000-0000-000000000000",
+    "Nome": "Projeto de exemplo",
+    "Caminho": "",
+    "LanguageProfile": 0,
+    "LanguageProfileId": "geral",
+    "KnowledgeIndexPath": "",
+    "AiProviderId": "provider-example",
+    "IncrementarVersaoAoConcluir": false,
+    "AutoVerificationEnabled": false,
+    "Ftp": {
+      "Host": "",
+      "Port": 21,
+      "User": "",
+      "Password": "",
+      "PasswordEnv": "",
+      "UsePassive": true,
+      "UseBinary": true,
+      "EnableSsl": false,
+      "RemoteRoot": "/"
+    },
+    "Database": {
+      "Type": "MySQL",
+      "Host": "",
+      "Port": 3306,
+      "DatabaseName": "",
+      "User": "",
+      "Password": "",
+      "PasswordEnv": "",
+      "UseSsl": false,
+      "Charset": "utf8mb4",
+      "TimeoutSeconds": 30
+    },
+    "Credenciais": []
+  }
+]

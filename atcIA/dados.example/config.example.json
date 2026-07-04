@@ -1,0 +1,16 @@
+{
+  "GeminiApiKey": "",
+  "GeminiModel": "",
+  "PromptFile": "",
+  "AnalystPromptPath": "",
+  "ComplementPromptPath": "",
+  "KimiOpenAIBaseUrl": "",
+  "KimiOpenAIApiKey": "",
+  "KimiOpenAIModel": "",
+  "KimiEnableSearch": false,
+  "KimiEnableThinking": false,
+  "ProjectRoot": "",
+  "LastProjectId": "",
+  "LogVisible": true,
+  "MaxPromptChars": 30000
+}

@@ -1,0 +1,72 @@
+{
+  "SchemaVersion": 1,
+  "Name": "MeuProjeto",
+  "Description": "Projeto de exemplo para o atcIA.",
+  "Root": "C:\\\\caminho\\\\do\\\\projeto",
+  "Include": [
+    "**/*.cs",
+    "**/*.csproj",
+    "**/*.sln",
+    "**/*.config",
+    "**/*.json",
+    "**/*.md",
+    "**/*.txt"
+  ],
+  "Exclude": [
+    "**/bin/**",
+    "**/obj/**",
+    "**/.git/**",
+    "**/.vs/**",
+    "**/packages/**"
+  ],
+  "ContextFiles": [
+    "prompt.txt",
+    "README.md"
+  ],
+  "PrimaryFiles": [
+    "Program.cs",
+    "Main.cs",
+    "README.md"
+  ],
+  "Instructions": [
+    "Priorize alteracoes pequenas e seguras.",
+    "Nao use git.",
+    "Use DOS apenas para operacoes locais."
+  ],
+  "AllowedDosCommands": [
+    "dir",
+    "type",
+    "copy",
+    "move",
+    "del",
+    "mkdir",
+    "rmdir",
+    "findstr",
+    "where",
+    "echo"
+  ],
+  "MaxFileBytes": 120000,
+  "MaxTotalBytes": 600000,
+  "MaxFiles": 60,
+  "Ftp": {
+    "Host": "ftp.seusite.com",
+    "Port": 21,
+    "User": "usuario",
+    "PasswordEnv": "ATCIA_FTP_PASS",
+    "UsePassive": true,
+    "UseBinary": true,
+    "EnableSsl": false,
+    "RemoteRoot": "/"
+  },
+  "Database": {
+    "Type": "MySQL",
+    "Host": "localhost",
+    "Port": 3306,
+    "DatabaseName": "meu_banco",
+    "User": "usuario",
+    "PasswordEnv": "ATCIA_DB_PASS",
+    "UseSsl": false,
+    "Charset": "utf8mb4",
+    "TimeoutSeconds": 30
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "Providers": [
+    {
+      "Id": "provider-example",
+      "Nome": "Provider de exemplo",
+      "ProviderType": "OpenAI",
+      "ModelName": "modelo-exemplo",
+      "ApiKeyConfigName": "ExampleApiKey",
+      "ApiKey": "",
+      "PromptPath": "",
+      "GitDiffPromptPath": "",
+      "NivelMaximoSuportado": 6,
+      "Ativo": false,
+      "UseGitDiff": false
+    }
+  ]
+}
