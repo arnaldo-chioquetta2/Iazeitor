@@ -44,3 +44,4 @@ O projeto usa um fluxo com interpretacao de resposta, normalizacao de acoes, val
 ## Como contribuir
 
 Leia `CONTRIBUTING.md` antes de propor mudancas.
+Este repositório utiliza Pull Requests para alterações na branch main.
