@@ -21,6 +21,7 @@ namespace atcIA
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Main));
             this.button1 = new System.Windows.Forms.Button();
+            this.btEnviarAlterados = new System.Windows.Forms.Button();
             this.textBox1 = new System.Windows.Forms.TextBox();
             this.textBoxContinuacao = new System.Windows.Forms.TextBox();
             this.textBox2 = new System.Windows.Forms.TextBox();
@@ -60,6 +61,18 @@ namespace atcIA
             this.button1.Text = "Processar";
             this.button1.UseVisualStyleBackColor = true;
             this.button1.Click += new System.EventHandler(this.button1_Click);
+            //
+            // btEnviarAlterados
+            //
+            this.btEnviarAlterados.Enabled = false;
+            this.btEnviarAlterados.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btEnviarAlterados.Location = new System.Drawing.Point(445, 90);
+            this.btEnviarAlterados.Name = "btEnviarAlterados";
+            this.btEnviarAlterados.Size = new System.Drawing.Size(200, 30);
+            this.btEnviarAlterados.TabIndex = 22;
+            this.btEnviarAlterados.Text = "Enviar alterados ao servidor";
+            this.btEnviarAlterados.UseVisualStyleBackColor = true;
+            this.btEnviarAlterados.Click += new System.EventHandler(this.btEnviarAlterados_Click);
             //
             // textBox1
             //
@@ -349,6 +362,7 @@ namespace atcIA
             this.Controls.Add(this.textBox1);
             this.Controls.Add(this.textBoxContinuacao);
             this.Controls.Add(this.button1);
+            this.Controls.Add(this.btEnviarAlterados);
             this.Controls.Add(this.statusStrip1);
             this.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
@@ -365,6 +379,7 @@ namespace atcIA
         #endregion
 
         private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.Button btEnviarAlterados;
         private System.Windows.Forms.TextBox textBox1;
         private System.Windows.Forms.TextBox textBoxContinuacao;
         private System.Windows.Forms.TextBox textBox2;
