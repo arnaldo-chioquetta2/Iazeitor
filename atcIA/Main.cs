@@ -1,5 +1,6 @@
 using GptBolDll;
 using GptBolDll.Configuration;
+using GptBolDll.Deploy;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -41,6 +42,51 @@ namespace atcIA
         private string languageProfileIdAtual = "geral";
         private string papelProcessamentoAtual = string.Empty;
         private bool processamentoComplementoAtual;
+        private readonly List<string> arquivosAlteradosDisponiveis = new List<string>();
+
+        private void btEnviarAlterados_Click(object sender, EventArgs e)
+        {
+            var projeto = ObterProjetoAtivo();
+            string projectRoot = ObterPastaProjetoAtiva();
+            if (projeto == null || string.IsNullOrWhiteSpace(projectRoot) || !Directory.Exists(projectRoot))
+            {
+                MessageBox.Show("O projeto ativo nao existe.", "Enviar alterados", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (arquivosAlteradosDisponiveis.Count == 0)
+            {
+                MessageBox.Show("Nenhum arquivo alterado disponivel para envio.", "Enviar alterados", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string lista = string.Join(Environment.NewLine, arquivosAlteradosDisponiveis);
+            if (MessageBox.Show("Enviar estes arquivos ao servidor?" + Environment.NewLine + Environment.NewLine + lista,
+                "Confirmar envio", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            try
+            {
+                var service = new RemoteDeployService(RegistrarStatusAuxiliar);
+                var result = service.UploadChangedFiles(projectRoot, arquivosAlteradosDisponiveis, projeto.Ftp);
+                string resumo = "Envio concluido. Sucesso: " + result.SuccessCount + " Falhas: " + result.FailureCount;
+                RegistrarStatusAuxiliar("[DEPLOY] " + resumo);
+                MessageBox.Show(resumo, "Enviar alterados", MessageBoxButtons.OK,
+                    result.FailureCount == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }
+            catch (InvalidOperationException ex)
+            {
+                RegistrarStatusAuxiliar("[DEPLOY] Envio bloqueado: " + ex.Message);
+                MessageBox.Show(ex.Message, "Enviar alterados", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (Exception ex)
+            {
+                const string mensagem = "Falha ao enviar arquivo. Verifique host, usuario, senha e pasta remota.";
+                RegistrarStatusAuxiliar("[DEPLOY] Envio bloqueado: " + mensagem);
+                RegistrarExcecaoDetalhada(ex);
+                MessageBox.Show(mensagem, "Enviar alterados", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
 
         private void button1_Click(object sender, EventArgs e)
         {
@@ -1064,11 +1110,15 @@ namespace atcIA
         private void ExibirAcoesPropostas(AgentResult resultado)
         {
             listBoxAcoes.Items.Clear();
+            arquivosAlteradosDisponiveis.Clear();
+            if (btEnviarAlterados != null)
+                btEnviarAlterados.Enabled = false;
 
             if (resultado == null)
                 return;
 
             var arquivos = ExtrairArquivosAlterados(resultado).ToList();
+            arquivosAlteradosDisponiveis.AddRange(arquivos);
             RegistrarStatusAuxiliar("[DIAG] Arquivos alterados recebidos: " + arquivos.Count);
             foreach (var arquivo in arquivos)
             {
@@ -1076,6 +1126,8 @@ namespace atcIA
             }
 
             RegistrarStatusAuxiliar("[DIAG] listBoxAcoes itens apos preencher: " + listBoxAcoes.Items.Count);
+            if (btEnviarAlterados != null)
+                btEnviarAlterados.Enabled = arquivosAlteradosDisponiveis.Count > 0;
         }
 
         private void ExibirEtapasAnalista(AgentResult resultado)
