@@ -15,6 +15,20 @@ namespace atcIA
 {
     public partial class FormProjetoCadastro : Form
     {
+        private const string FeatureMarker = "ProjectInactiveProviderGuard-v1";
+
+        private sealed class AiProviderProjetoItem
+        {
+            public AiProviderConfig Provider { get; }
+            public string Id => Provider.Id;
+            public string Nome { get; }
+
+            public AiProviderProjetoItem(AiProviderConfig provider)
+            {
+                Provider = provider;
+                Nome = (provider.Nome ?? provider.Id) + (provider.Ativo ? string.Empty : " (inativa)");
+            }
+        }
         public Projeto ProjetoSalvo { get; private set; }
         private readonly List<ProjectCredential> credenciais = new List<ProjectCredential>();
         private List<LanguageProfileConfig> languageProfiles = new List<LanguageProfileConfig>();
@@ -133,30 +147,58 @@ namespace atcIA
 
         private void CarregarAiProviders()
         {
-            var providers = AiProviderRepository.ListarAtivos();
+            var todos = AiProviderRepository.Listar()
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
+                .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+
+            var providers = todos.Where(p => p.Ativo).ToList();
+            string providerIdSalvo = projetoEdicao == null ? string.Empty : projetoEdicao.AiProviderId;
+            var salvoInativo = todos.FirstOrDefault(p =>
+                !p.Ativo && string.Equals(p.Id, providerIdSalvo, StringComparison.OrdinalIgnoreCase));
+            if (salvoInativo != null)
+            {
+                providers.Add(salvoInativo);
+                RegistrarLogProjetoIA("[PROJETO-IA] Provider inativo atualmente salvo no projeto: " + salvoInativo.Nome);
+            }
+
+            var itens = providers.Select(p => new AiProviderProjetoItem(p)).ToList();
             cboAiProvider.DataSource = null;
             cboAiProvider.DisplayMember = "Nome";
             cboAiProvider.ValueMember = "Id";
-            cboAiProvider.DataSource = providers;
+            cboAiProvider.DropDownWidth = 280;
+            cboAiProvider.DataSource = itens;
 
-            if (providers.Count > 0)
+            RegistrarLogProjetoIA("[PROJETO-IA] Providers ativos carregados: " + todos.Count(p => p.Ativo));
+            RegistrarLogProjetoIA("[PROJETO-IA] FeatureMarker: " + FeatureMarker);
+
+            if (itens.Count > 0)
                 cboAiProvider.SelectedIndex = 0;
         }
 
         private void SelecionarAiProvider(string providerId)
         {
-            var providers = cboAiProvider.DataSource as List<AiProviderConfig>;
+            var providers = cboAiProvider.DataSource as List<AiProviderProjetoItem>;
             if (providers == null || providers.Count == 0)
                 return;
 
-            var provider = providers.FirstOrDefault(p => p.Id == providerId) ?? providers.First();
+            var provider = providers.FirstOrDefault(p => string.Equals(p.Id, providerId, StringComparison.OrdinalIgnoreCase));
+            if (provider == null)
+            {
+                RegistrarLogProjetoIA("[PROJETO-IA] IA salva nao encontrada na lista: " + (providerId ?? string.Empty));
+                provider = providers.First();
+            }
+
             cboAiProvider.SelectedItem = provider;
         }
 
         private AiProviderConfig ObterAiProviderSelecionado()
         {
-            return cboAiProvider.SelectedItem as AiProviderConfig
-                ?? AiProviderRepository.BuscarAtivoOuPadrao(AiProviderConfig.DefaultProviderId);
+            var item = cboAiProvider.SelectedItem as AiProviderProjetoItem;
+            return item == null
+                ? AiProviderRepository.BuscarAtivoOuPadrao(AiProviderConfig.DefaultProviderId)
+                : item.Provider;
         }
 
         private void btNavegar_Click(object sender, EventArgs e)
@@ -585,6 +627,19 @@ namespace atcIA
 
         private void btSalvar_Click(object sender, EventArgs e)
         {
+            var providerSelecionado = ObterAiProviderSelecionado();
+            if (providerSelecionado == null || !providerSelecionado.Ativo)
+            {
+                string nome = providerSelecionado == null ? "IA nao encontrada" : (providerSelecionado.Nome ?? providerSelecionado.Id);
+                RegistrarLogProjetoIA("[PROJETO-IA] Salvamento bloqueado: provider inativo selecionado: " + nome);
+                MessageBox.Show(
+                    "A IA selecionada est\u00E1 inativa. Ative esta IA nas configura\u00E7\u00F5es de IAs antes de us\u00E1-la neste projeto.",
+                    "IA inativa",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
             var projeto = CriarProjetoDoFormulario();
 
             string erro;
@@ -676,6 +731,22 @@ namespace atcIA
 
         private void cboAiProvider_SelectedIndexChanged(object sender, EventArgs e)
         {
+            var item = cboAiProvider.SelectedItem as AiProviderProjetoItem;
+            if (item != null)
+                RegistrarLogProjetoIA("[PROJETO-IA] IA selecionada do projeto: " + item.Nome);
+        }
+
+        private void RegistrarLogProjetoIA(string mensagem)
+        {
+            try
+            {
+                string logPath = Path.Combine(AppPaths.DadosDir, "execucao.log");
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath) ?? AppPaths.DadosDir);
+                File.AppendAllText(logPath, mensagem + Environment.NewLine);
+            }
+            catch
+            {
+            }
         }
 
         private void btCancelar_Click(object sender, EventArgs e)
