@@ -7,6 +7,8 @@ namespace GptBolDll
         public const string DefaultProviderId = "gemini-default";
         public const string KimiProviderId = "kimi-openai-compatible";
         public const string KimiProviderType = "KimiOpenAICompatible";
+        public const string KimiOfficialProviderId = "kimi-official-moonshot";
+        public const string KimiOfficialProviderType = "KimiOfficialMoonshot";
 
         public string Id { get; set; }
         public string Nome { get; set; }
@@ -110,6 +112,23 @@ namespace GptBolDll
             };
         }
 
+        public static AiProviderConfig CreateDefaultKimiOfficial()
+        {
+            return new AiProviderConfig
+            {
+                Id = KimiOfficialProviderId,
+                Nome = "Kimi Oficial / Moonshot",
+                ProviderType = KimiOfficialProviderType,
+                ModelName = "kimi-k2.6",
+                ApiKeyConfigName = "KimiOfficialApiKey",
+                ApiKey = "",
+                PromptPath = string.Empty,
+                GitDiffPromptPath = string.Empty,
+                NivelMaximoSuportado = 6,
+                Ativo = false,
+                UseGitDiff = false
+            };
+        }
         public static AiProviderConfig CreateDefaultKimi()
         {
             return new AiProviderConfig
@@ -137,12 +156,16 @@ namespace GptBolDll
             if (string.IsNullOrWhiteSpace(ProviderType))
                 ProviderType = "Gemini";
             if (string.IsNullOrWhiteSpace(ModelName))
-                ModelName = string.Equals(ProviderType, KimiProviderType, StringComparison.OrdinalIgnoreCase)
-                    ? "kimi-k2"
+                ModelName = string.Equals(ProviderType, KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase)
+                    ? "kimi-k2.6"
+                    : string.Equals(ProviderType, KimiProviderType, StringComparison.OrdinalIgnoreCase)
+                        ? "kimi-k2"
                     : "gemini-2.5-flash";
             if (string.IsNullOrWhiteSpace(ApiKeyConfigName))
-                ApiKeyConfigName = string.Equals(ProviderType, KimiProviderType, StringComparison.OrdinalIgnoreCase)
-                    ? "KimiOpenAIApiKey"
+                ApiKeyConfigName = string.Equals(ProviderType, KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase)
+                    ? "KimiOfficialApiKey"
+                    : string.Equals(ProviderType, KimiProviderType, StringComparison.OrdinalIgnoreCase)
+                        ? "KimiOpenAIApiKey"
                     : "GeminiApiKey";
             if (ApiKey == null)
                 ApiKey = "";
