@@ -135,7 +135,7 @@ namespace atcIA
 
         private void CarregarAiProviders()
         {
-            var providers = AiProviderRepository.Listar()
+            var providers = AiProviderRepository.ListarAtivos()
                 .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
                 .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
