@@ -48,6 +48,20 @@ namespace atcIA
             buttonStatus.Refresh();
             string projectRoot = ObterPastaProjetoAtiva();
             var projetoAtivo = ObterProjetoAtivo();
+            var providerConfigurado = projetoAtivo == null
+                ? null
+                : AiProviderRepository.BuscarPorId(projetoAtivo.AiProviderId);
+            if (providerConfigurado != null && !providerConfigurado.Ativo)
+            {
+                string nomeProvider = providerConfigurado.Nome ?? providerConfigurado.Id;
+                string mensagemProvider = "A IA configurada para este projeto est\u00E1 inativa: " + nomeProvider + ". Ative o provider ou selecione outra IA no cadastro do projeto.";
+                string logProvider = "[PROJETO-IA] Execucao bloqueada: IA do projeto inativa: " + nomeProvider;
+                textBoxLog.AppendText(logProvider + Environment.NewLine);
+                File.AppendAllText(executionLogPath, logProvider + Environment.NewLine);
+                MessageBox.Show(mensagemProvider, "IA inativa", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             var provider = AiProviderRepository.BuscarAtivoOuPadrao(projetoAtivo == null ? AiProviderConfig.DefaultProviderId : projetoAtivo.AiProviderId);
             string apiKey = ObterApiKeyParaProvider(provider);
 
