@@ -181,7 +181,7 @@ namespace atcIA
             this.cboAiProvider.FormattingEnabled = true;
             this.cboAiProvider.Location = new System.Drawing.Point(387, 17);
             this.cboAiProvider.Name = "cboAiProvider";
-            this.cboAiProvider.Size = new System.Drawing.Size(92, 21);
+            this.cboAiProvider.Size = new System.Drawing.Size(180, 21);
             this.cboAiProvider.TabIndex = 11;
             this.cboAiProvider.SelectedIndexChanged += new System.EventHandler(this.cboAiProvider_SelectedIndexChanged);
             //
