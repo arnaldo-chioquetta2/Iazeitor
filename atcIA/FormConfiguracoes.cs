@@ -396,6 +396,8 @@ namespace atcIA
                 return "deepseek-chat";
             if (string.Equals(providerType, "KimiOpenAICompatible", StringComparison.OrdinalIgnoreCase))
                 return "kimi-k2";
+            if (string.Equals(providerType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+                return "kimi-k2.6";
 
             return "gemini-2.5-flash";
         }
@@ -414,6 +416,8 @@ namespace atcIA
                 return "DeepSeekApiKey";
             if (string.Equals(providerType, "KimiOpenAICompatible", StringComparison.OrdinalIgnoreCase))
                 return "KimiOpenAIApiKey";
+            if (string.Equals(providerType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+                return "KimiOfficialApiKey";
             if (string.Equals(providerType, "Gemini", StringComparison.OrdinalIgnoreCase))
                 return "GeminiApiKey";
 
