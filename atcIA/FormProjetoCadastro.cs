@@ -15,6 +15,7 @@ namespace atcIA
 {
     public partial class FormProjetoCadastro : Form
     {
+        private const string FeatureMarker = "ProjectProviderList-v1";
         public Projeto ProjetoSalvo { get; private set; }
         private readonly List<ProjectCredential> credenciais = new List<ProjectCredential>();
         private List<LanguageProfileConfig> languageProfiles = new List<LanguageProfileConfig>();
@@ -35,6 +36,7 @@ namespace atcIA
         private void InicializarFormulario(Projeto projeto)
         {
             projetoEdicao = projeto;
+            RegistrarLogProjetoIA("[PROJETO-IA] FeatureMarker: " + FeatureMarker);
             cboTipoCredencial.SelectedIndex = 0;
             cboDbTipo.SelectedIndex = 0;
             CarregarLanguageProfiles();
@@ -133,11 +135,19 @@ namespace atcIA
 
         private void CarregarAiProviders()
         {
-            var providers = AiProviderRepository.ListarAtivos();
+            var providers = AiProviderRepository.Listar()
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
+                .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+
             cboAiProvider.DataSource = null;
             cboAiProvider.DisplayMember = "Nome";
             cboAiProvider.ValueMember = "Id";
+            cboAiProvider.DropDownWidth = 280;
             cboAiProvider.DataSource = providers;
+
+            RegistrarLogProjetoIA("[PROJETO-IA] Providers carregados para projeto: " + providers.Count);
 
             if (providers.Count > 0)
                 cboAiProvider.SelectedIndex = 0;
@@ -149,8 +159,15 @@ namespace atcIA
             if (providers == null || providers.Count == 0)
                 return;
 
-            var provider = providers.FirstOrDefault(p => p.Id == providerId) ?? providers.First();
+            var provider = providers.FirstOrDefault(p => string.Equals(p.Id, providerId, StringComparison.OrdinalIgnoreCase));
+            if (provider == null)
+            {
+                RegistrarLogProjetoIA("[PROJETO-IA] IA salva nao encontrada na lista: " + (providerId ?? string.Empty));
+                provider = providers.First();
+            }
+
             cboAiProvider.SelectedItem = provider;
+            RegistrarLogProjetoIA("[PROJETO-IA] IA selecionada do projeto: " + (provider.Nome ?? provider.Id));
         }
 
         private AiProviderConfig ObterAiProviderSelecionado()
@@ -676,6 +693,22 @@ namespace atcIA
 
         private void cboAiProvider_SelectedIndexChanged(object sender, EventArgs e)
         {
+            var provider = cboAiProvider.SelectedItem as AiProviderConfig;
+            if (provider != null)
+                RegistrarLogProjetoIA("[PROJETO-IA] IA selecionada do projeto: " + (provider.Nome ?? provider.Id));
+        }
+
+        private void RegistrarLogProjetoIA(string mensagem)
+        {
+            try
+            {
+                string logPath = Path.Combine(AppPaths.DadosDir, "execucao.log");
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath) ?? AppPaths.DadosDir);
+                File.AppendAllText(logPath, mensagem + Environment.NewLine);
+            }
+            catch
+            {
+            }
         }
 
         private void btCancelar_Click(object sender, EventArgs e)
