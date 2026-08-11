@@ -33,6 +33,16 @@ namespace atcIA
                     providerConfig.ModelName);
             }
 
+            if (string.Equals(providerConfig.ProviderType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+            {
+                return new KimiOfficialClient(
+                    () => !string.IsNullOrWhiteSpace(providerConfig.ApiKey)
+                        ? providerConfig.ApiKey
+                        : apiKeyProvider(providerConfig.ApiKeyConfigName),
+                    providerConfig.ModelName,
+                    KimiOfficialClient.DefaultBaseUrl,
+                    statusReporter);
+            }
             if (string.Equals(providerConfig.ProviderType, AiProviderConfig.KimiProviderType, StringComparison.OrdinalIgnoreCase))
             {
                 return new KimiOpenAICompatibleClient(
