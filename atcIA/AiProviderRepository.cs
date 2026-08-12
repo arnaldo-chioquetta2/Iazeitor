@@ -171,6 +171,8 @@ namespace atcIA
                 store.Providers.Add(AiProviderConfig.CreateDefaultDeepSeek());
             if (!store.Providers.Any(p => p.Id == AiProviderConfig.KimiProviderId))
                 store.Providers.Add(AiProviderConfig.CreateDefaultKimi());
+            if (!store.Providers.Any(p => p.Id == AiProviderConfig.KimiOfficialProviderId))
+                store.Providers.Add(AiProviderConfig.CreateDefaultKimiOfficial());
 
             if (!store.Providers.Any(p => p.Ativo))
                 store.Providers.First().Ativo = true;

@@ -9,7 +9,7 @@ namespace atcIA
 {
     public partial class FormConfiguracoes : Form
     {
-        private const string FeatureMarker = "PromptProviderLoadFix-v1;GitDiffConfigTraceFix-v1";
+        private const string FeatureMarker = "PromptProviderLoadFix-v1;GitDiffConfigTraceFix-v1;KimiOfficialActivationGuard-v1";
         private List<AiProviderConfig> providers = new List<AiProviderConfig>();
 
         public FormConfiguracoes()
@@ -119,6 +119,11 @@ namespace atcIA
             chkAiAtivo.Checked = provider.Ativo;
             ckGitDiff.Checked = provider.UseGitDiff;
             LogProviderSelection(provider);
+            if (string.Equals(provider.ProviderType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+            {
+                LogConfig("[KIMI-OFICIAL] Provider ativo: " + (provider.Ativo ? "true" : "false"));
+                LogConfig("[KIMI-OFICIAL] API key configurada: " + (!string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false"));
+            }
             textBox2.Text = ObterPromptOriginalParaTela(provider, out bool usouFallbackGlobal);
             txGitDiff.Text = provider.GitDiffPromptPath ?? string.Empty;
             LogToConfigTrace("[CONFIG] txGitDiff carregado do provider: " + (provider != null ? "true" : "false"));
@@ -212,6 +217,11 @@ namespace atcIA
             provider.NivelMaximoSuportado = (int)numericAiNivel.Value;
             provider.Ativo = chkAiAtivo.Checked;
             provider.UseGitDiff = useGitDiff;
+            if (string.Equals(provider.ProviderType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+            {
+                LogConfig("[KIMI-OFICIAL] Provider ativo: " + (provider.Ativo ? "true" : "false"));
+                LogConfig("[KIMI-OFICIAL] API key configurada: " + (!string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false"));
+            }
 
             if (useGitDiff && string.IsNullOrWhiteSpace(gitDiffPromptPath))
                 LogWarningGitDiffSemPrompt(provider);
@@ -396,6 +406,8 @@ namespace atcIA
                 return "deepseek-chat";
             if (string.Equals(providerType, "KimiOpenAICompatible", StringComparison.OrdinalIgnoreCase))
                 return "kimi-k2";
+            if (string.Equals(providerType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+                return "kimi-k2.6";
 
             return "gemini-2.5-flash";
         }
@@ -414,6 +426,8 @@ namespace atcIA
                 return "DeepSeekApiKey";
             if (string.Equals(providerType, "KimiOpenAICompatible", StringComparison.OrdinalIgnoreCase))
                 return "KimiOpenAIApiKey";
+            if (string.Equals(providerType, AiProviderConfig.KimiOfficialProviderType, StringComparison.OrdinalIgnoreCase))
+                return "KimiOfficialApiKey";
             if (string.Equals(providerType, "Gemini", StringComparison.OrdinalIgnoreCase))
                 return "GeminiApiKey";
 

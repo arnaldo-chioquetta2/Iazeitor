@@ -174,6 +174,7 @@ namespace atcIA
             "Groq",
             "Mistral",
             "KimiOpenAICompatible",
+            "KimiOfficialMoonshot",
             "DeepSeek",
             "Mixtral"});
             this.cboProviderType.Location = new System.Drawing.Point(191, 247);
