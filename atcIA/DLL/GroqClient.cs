@@ -6,11 +6,15 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Iazeitor.PromptEngine.Contracts;
+using Iazeitor.PromptEngine.Providers;
 
 namespace GptBolDll
 {
     public sealed class GroqClient : IAgentModelClient
     {
+        internal const string ProviderKey = "Groq";
+
         private readonly Func<string> apiKeyProvider;
         private readonly string modelName;
         private readonly Action<string> statusReporter;
@@ -33,17 +37,67 @@ namespace GptBolDll
             if (string.IsNullOrWhiteSpace(apiKey))
                 throw new InvalidOperationException("Chave da Groq nao configurada.");
 
-            return await AskOnceWithRetryAsync(prompt, apiKey).ConfigureAwait(false);
+            return await AskOnceWithRetryAsync(BuildRequestBodyJson(prompt), apiKey).ConfigureAwait(false);
         }
 
-        private async Task<string> AskOnceWithRetryAsync(string prompt, string apiKey)
+        public async Task<string> AskAsync(PromptRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            PromptProviderMapping.EnsureProviderCompatible(request, ProviderKey, ProviderName, "Grog");
+
+            string apiKey = apiKeyProvider?.Invoke();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                throw new InvalidOperationException("Chave da Groq nao configurada.");
+
+            return await AskOnceWithRetryAsync(BuildRequestBodyJson(request), apiKey).ConfigureAwait(false);
+        }
+
+        /// <summary>Corpo JSON do caminho legado AskAsync(string). Puro: nao faz HTTP.</summary>
+        internal string BuildRequestBodyJson(string prompt)
+        {
+            var body = new
+            {
+                model = ModelName,
+                messages = new[]
+                {
+                    new
+                    {
+                        role = "user",
+                        content = prompt
+                    }
+                }
+            };
+
+            return JsonConvert.SerializeObject(body);
+        }
+
+        /// <summary>Corpo JSON tipado. Puro: nao faz HTTP. Preserva system/user/assistant.</summary>
+        internal string BuildRequestBodyJson(PromptRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            PromptProviderMapping.EnsureProviderCompatible(request, ProviderKey, ProviderName, "Grog");
+
+            var body = new
+            {
+                model = PromptProviderMapping.ResolveModel(request, ModelName),
+                messages = PromptProviderMapping.BuildOpenAiMessages(request)
+            };
+
+            return JsonConvert.SerializeObject(body);
+        }
+
+        private async Task<string> AskOnceWithRetryAsync(string bodyJson, string apiKey)
         {
             string result = null;
             HttpResponseMessage response = null;
 
             for (int attempt = 1; attempt <= 4; attempt++)
             {
-                response = await SendRequestAsync(prompt, apiKey).ConfigureAwait(false);
+                response = await SendRequestAsync(bodyJson, apiKey).ConfigureAwait(false);
                 result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
                 if (response.IsSuccessStatusCode)
@@ -75,24 +129,11 @@ namespace GptBolDll
             throw new InvalidOperationException("Falha ao consultar Groq: HTTP " + (int)response.StatusCode + " - " + result);
         }
 
-        private async Task<HttpResponseMessage> SendRequestAsync(string prompt, string apiKey)
+        private async Task<HttpResponseMessage> SendRequestAsync(string bodyJson, string apiKey)
         {
-            var body = new
-            {
-                model = ModelName,
-                messages = new[]
-                {
-                    new
-                    {
-                        role = "user",
-                        content = prompt
-                    }
-                }
-            };
-
             var request = new HttpRequestMessage(HttpMethod.Post, "https://api.groq.com/openai/v1/chat/completions");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            request.Content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+            request.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
 
             return await client.SendAsync(request).ConfigureAwait(false);
         }

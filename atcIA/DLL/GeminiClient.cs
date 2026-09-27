@@ -5,11 +5,15 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
 using System.Threading;
+using Iazeitor.PromptEngine.Contracts;
+using Iazeitor.PromptEngine.Providers;
 
 namespace GptBolDll
 {
     public class GeminiClient : IAgentModelClientWithTimeout
     {
+        internal const string ProviderKey = "Gemini";
+
         public string ProviderName { get { return "Gemini"; } }
 
         public string ModelName { get { return modelName; } }
@@ -43,9 +47,31 @@ namespace GptBolDll
 
         public async Task<string> AskAsync(string prompt, int timeoutMs)
         {
-            string apiKey = apiKeyProvider?.Invoke();
-            string url = $"https://generativelanguage.googleapis.com/v1/models/{ModelName}:generateContent?key={apiKey}";
+            return await SendRequestBodyAsync(BuildRequestBodyJson(prompt), timeoutMs).ConfigureAwait(false);
+        }
 
+        /// <summary>Caminho tipado (Prompt Engine). Preserva System (systemInstruction) e User/Assistant (contents).</summary>
+        public async Task<string> AskAsync(PromptRequest request)
+        {
+            return await AskAsync(request, 0).ConfigureAwait(false);
+        }
+
+        public async Task<string> AskAsync(PromptRequest request, int timeoutMs)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            PromptProviderMapping.EnsureProviderCompatible(request, ProviderKey, ProviderName);
+
+            return await SendRequestBodyAsync(BuildRequestBodyJson(request), timeoutMs).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Corpo JSON do caminho legado AskAsync(string). Puro: nao faz HTTP.
+        /// Mantem exatamente o formato anterior: contents -> parts -> text.
+        /// </summary>
+        internal string BuildRequestBodyJson(string prompt)
+        {
             var body = new
             {
                 contents = new[]
@@ -60,7 +86,67 @@ namespace GptBolDll
                 }
             };
 
-            var json = JsonConvert.SerializeObject(body);
+            return JsonConvert.SerializeObject(body);
+        }
+
+        /// <summary>
+        /// Corpo JSON tipado. Puro: nao faz HTTP.
+        /// System vai para 'systemInstruction' (unico, deterministico) e User/Assistant viram
+        /// 'user'/'model' em contents. Assistant nunca e rebaixado para user.
+        /// </summary>
+        internal string BuildRequestBodyJson(PromptRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            PromptProviderMapping.EnsureProviderCompatible(request, ProviderKey, ProviderName);
+            PromptProviderMapping.EnsureHasMessages(request);
+
+            var body = new JObject();
+
+            string systemInstruction = PromptProviderMapping.JoinSystemMessages(request);
+            if (!string.IsNullOrEmpty(systemInstruction))
+            {
+                body["systemInstruction"] = new JObject
+                {
+                    ["parts"] = new JArray
+                    {
+                        new JObject { ["text"] = systemInstruction }
+                    }
+                };
+            }
+
+            var contents = new JArray();
+            for (int i = 0; i < request.Messages.Count; i++)
+            {
+                PromptMessage message = request.Messages[i];
+                if (message == null)
+                    throw new ArgumentException("PromptRequest.Messages contem item null.", nameof(request));
+
+                if (message.Role == PromptRole.System)
+                    continue;
+
+                contents.Add(new JObject
+                {
+                    ["role"] = PromptProviderMapping.ToGeminiRole(message.Role),
+                    ["parts"] = new JArray
+                    {
+                        new JObject { ["text"] = message.Content ?? string.Empty }
+                    }
+                });
+            }
+
+            if (contents.Count == 0)
+                throw new InvalidOperationException("PromptRequest sem mensagens de usuario ou assistente para o Gemini.");
+
+            body["contents"] = contents;
+            return JsonConvert.SerializeObject(body);
+        }
+
+        private async Task<string> SendRequestBodyAsync(string json, int timeoutMs)
+        {
+            string apiKey = apiKeyProvider?.Invoke();
+            string url = $"https://generativelanguage.googleapis.com/v1/models/{ModelName}:generateContent?key={apiKey}";
 
             HttpResponseMessage response;
             using (var content = new StringContent(json, Encoding.UTF8, "application/json"))

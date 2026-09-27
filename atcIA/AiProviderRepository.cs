@@ -16,18 +16,18 @@ namespace atcIA
     {
         public static string ProvidersFile
         {
-            get { return Path.Combine(AppPaths.DadosDir, "ai-providers.json"); }
+            get { return AppPaths.GetAiProvidersPath(); }
         }
 
         public static List<AiProviderConfig> Listar()
         {
             AppPaths.GarantirPastaDados();
-            RegistrarLogConfiguracao("[CONFIG] Providers arquivo origem runtime: " + ProvidersFile);
-
             var store = LoadStore();
+            RegistrarDiagnosticoProviders("[CONFIG-TRACE] JSON persistido", store.Providers);
             EnsureDefaultProvider(store);
             Normalize(store);
             SaveStore(store);
+            RegistrarDiagnosticoProviders("[CONFIG-TRACE] Objetos carregados apos Listar", store.Providers);
             return store.Providers;
         }
 
@@ -66,15 +66,12 @@ namespace atcIA
 
             provider.Normalize();
 
-            if (!string.IsNullOrWhiteSpace(provider.ApiKey))
-                provider.Ativo = true;
-
             var store = LoadStore();
 
             EnsureDefaultProvider(store);
             Normalize(store);
 
-            var existente = store.Providers.FirstOrDefault(p => p.Id == provider.Id);
+            var existente = store.Providers.FirstOrDefault(p => p != null && string.Equals(p.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
 
             if (existente == null)
                 store.Providers.Add(provider);
@@ -150,7 +147,6 @@ namespace atcIA
         private static void SaveStore(AiProviderConfigStore store)
         {
             AppPaths.GarantirPastaDados();
-            RegistrarLogConfiguracao("[CONFIG] Providers arquivo destino: " + ProvidersFile);
             File.WriteAllText(ProvidersFile, JsonConvert.SerializeObject(store, Formatting.Indented));
         }
 
@@ -171,6 +167,8 @@ namespace atcIA
                 store.Providers.Add(AiProviderConfig.CreateDefaultDeepSeek());
             if (!store.Providers.Any(p => p.Id == AiProviderConfig.KimiProviderId))
                 store.Providers.Add(AiProviderConfig.CreateDefaultKimi());
+            if (!store.Providers.Any(p => p.Id == AiProviderConfig.KimiOfficialProviderId))
+                store.Providers.Add(AiProviderConfig.CreateDefaultKimiOfficial());
 
             if (!store.Providers.Any(p => p.Ativo))
                 store.Providers.First().Ativo = true;
@@ -184,6 +182,7 @@ namespace atcIA
 
         private static void Copiar(AiProviderConfig origem, AiProviderConfig destino)
         {
+            destino.Id = origem.Id;
             destino.Nome = origem.Nome;
             destino.ProviderType = origem.ProviderType;
             destino.ModelName = origem.ModelName;
@@ -194,6 +193,24 @@ namespace atcIA
             destino.NivelMaximoSuportado = origem.NivelMaximoSuportado;
             destino.Ativo = origem.Ativo;
             destino.UseGitDiff = origem.UseGitDiff;
+        }
+
+        private static void RegistrarDiagnosticoProviders(string origem, IEnumerable<AiProviderConfig> providers)
+        {
+            int indice = 0;
+            foreach (var provider in providers ?? Enumerable.Empty<AiProviderConfig>())
+            {
+                RegistrarLogConfiguracao(
+                    origem + " Provider[" + indice + "]" +
+                    " Id=" + (provider == null ? string.Empty : provider.Id ?? string.Empty) +
+                    " Nome=" + (provider == null ? string.Empty : provider.Nome ?? string.Empty) +
+                    " Ativo=" + (provider != null && provider.Ativo ? "true" : "false") +
+                    " Modelo=" + (provider != null && !string.IsNullOrWhiteSpace(provider.ModelName) ? "true" : "false") +
+                    " API key=" + (provider != null && !string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false"));
+                indice++;
+            }
+
+            RegistrarLogConfiguracao(origem + " quantidade=" + indice);
         }
 
         private static void RegistrarLogConfiguracao(string mensagem)
