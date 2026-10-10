@@ -91,24 +91,12 @@ namespace atcIA
         private async Task<string> AskAsyncInternal(string payloadJson, int timeoutMs)
         {
             string rawApiKey = apiKeyProvider == null ? string.Empty : apiKeyProvider();
-            string apiKey = SanitizeApiKey(rawApiKey, out ApiKeyDiagnostics keyDiag);
+            string apiKey = SanitizeApiKey(rawApiKey);
 
             Log("[KIMI-OFICIAL] Provider selecionado.");
             Log("[KIMI-OFICIAL] Base URL configurada: " + baseUrl);
             Log("[KIMI-OFICIAL] Modelo: " + ModelName);
-            Log("[KIMI-OFICIAL] API key configurada: " + keyDiag.HasValue.ToString().ToLowerInvariant());
-            Log("[KIMI-OFICIAL] API key normalizada para envio: " + keyDiag.Normalized.ToString().ToLowerInvariant());
-            Log("[KIMI-OFICIAL] API key contem quebra de linha: " + keyDiag.HasNewLine.ToString().ToLowerInvariant());
-            Log("[KIMI-OFICIAL] API key contem espacos: " + keyDiag.HasSpaces.ToString().ToLowerInvariant());
-            Log("[KIMI-OFICIAL] Authorization scheme: Bearer");
-            Log("[KIMI-OFICIAL] Authorization token configurado: " + keyDiag.HasValue.ToString().ToLowerInvariant());
-            Log("[KIMI-OFICIAL] Authorization token possui prefixo Bearer no valor salvo: " + keyDiag.HasBearerPrefix.ToString().ToLowerInvariant());
-            if (keyDiag.HasValue)
-            {
-                Log("[KIMI-OFICIAL] Tamanho da API key: " + keyDiag.Length);
-                Log("[KIMI-OFICIAL] Prefixo da API key: " + keyDiag.Prefix);
-                Log("[KIMI-OFICIAL] Sufixo da API key: " + keyDiag.Suffix);
-            }
+            Log("[KIMI-OFICIAL] API key configurada: " + (!string.IsNullOrWhiteSpace(apiKey)).ToString().ToLowerInvariant());
             Log("[KIMI-OFICIAL] EnableThinking nao enviado para provider oficial.");
             Log("[KIMI-OFICIAL] EnableSearch nao enviado para provider oficial.");
 
@@ -279,11 +267,11 @@ namespace atcIA
         public async Task<bool> TestAuthenticationAsync(int timeoutMs = 30000)
         {
             string rawApiKey = apiKeyProvider == null ? string.Empty : apiKeyProvider();
-            string apiKey = SanitizeApiKey(rawApiKey, out ApiKeyDiagnostics keyDiag);
+            string apiKey = SanitizeApiKey(rawApiKey);
 
             Log("[KIMI-OFICIAL-TEST] Iniciando teste de autenticacao.");
             Log("[KIMI-OFICIAL-TEST] Base URL: " + baseUrl);
-            Log("[KIMI-OFICIAL-TEST] API key configurada: " + keyDiag.HasValue.ToString().ToLowerInvariant());
+            Log("[KIMI-OFICIAL-TEST] API key configurada: " + (!string.IsNullOrWhiteSpace(apiKey)).ToString().ToLowerInvariant());
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
@@ -368,37 +356,21 @@ namespace atcIA
             return string.Equals(model, "kimi-k2.6", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string SanitizeApiKey(string raw, out ApiKeyDiagnostics diag)
+        private static string SanitizeApiKey(string raw)
         {
-            diag = new ApiKeyDiagnostics();
             if (string.IsNullOrWhiteSpace(raw))
                 return string.Empty;
 
             string trimmed = raw.Trim();
-            diag.HasBearerPrefix = trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
-            if (diag.HasBearerPrefix)
+            if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                 trimmed = trimmed.Substring("Bearer ".Length).Trim();
 
-            diag.HasNewLine = trimmed.IndexOfAny(new[] { '\r', '\n' }) >= 0;
-            diag.HasSpaces = trimmed.Contains(" ");
-            diag.Length = trimmed.Length;
-            diag.Prefix = trimmed.Length >= 3 ? trimmed.Substring(0, 3) : trimmed;
-            diag.Suffix = trimmed.Length >= 3 ? trimmed.Substring(trimmed.Length - 3) : trimmed;
-            diag.HasValue = true;
-
             if (string.IsNullOrWhiteSpace(trimmed))
-            {
-                diag.Normalized = false;
                 return string.Empty;
-            }
 
             if (trimmed.IndexOfAny(new[] { '\r', '\n' }) >= 0)
-            {
-                diag.Normalized = false;
                 return string.Empty;
-            }
 
-            diag.Normalized = true;
             return trimmed;
         }
 
@@ -488,18 +460,6 @@ namespace atcIA
                     .Select(item => item["text"]?.ToString() ?? item.ToString()));
 
             return content.ToString(Formatting.None);
-        }
-
-        private struct ApiKeyDiagnostics
-        {
-            public bool HasValue;
-            public bool Normalized;
-            public bool HasNewLine;
-            public bool HasSpaces;
-            public bool HasBearerPrefix;
-            public int Length;
-            public string Prefix;
-            public string Suffix;
         }
 
         private struct ApiErrorDetails
