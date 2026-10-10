@@ -10,6 +10,8 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using GptBolDll;
+using Iazeitor.PromptEngine.Contracts;
+using Iazeitor.PromptEngine.Providers;
 
 namespace atcIA
 {
@@ -47,6 +49,8 @@ namespace atcIA
 
     public sealed class KimiOpenAICompatibleClient : IAgentModelClientWithTimeout
     {
+        internal const string ProviderKey = "KimiOpenAICompatible";
+
         private static readonly HttpClient Client = new HttpClient();
         private readonly Func<string> apiKeyProvider;
         private readonly string modelName;
@@ -94,7 +98,7 @@ namespace atcIA
                 throw new InvalidOperationException("Chave da API Kimi nao configurada.");
 
             string url = baseUrl.TrimEnd('/') + "/chat/completions";
-            string responseText = await SendRequestAsync(url, prompt, apiKey, timeoutMs, includeFlags: true).ConfigureAwait(false);
+            string responseText = await SendRequestAsync(url, includeFlagsLocal => BuildLegacyRequestBody(prompt, includeFlagsLocal), apiKey, timeoutMs, includeFlags: true).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(responseText))
             {
                 Log("[KIMI] Resposta chars: " + responseText.Length);
@@ -104,7 +108,44 @@ namespace atcIA
             throw new InvalidOperationException("Kimi retornou resposta vazia ou sem texto.");
         }
 
-        private async Task<string> SendRequestAsync(string url, string prompt, string apiKey, int timeoutMs, bool includeFlags)
+        /// <summary>Caminho tipado (Prompt Engine). Preserva system/user/assistant sem injetar system extra.</summary>
+        public async Task<string> AskAsync(PromptRequest request)
+        {
+            return await AskAsync(request, 0).ConfigureAwait(false);
+        }
+
+        public async Task<string> AskAsync(PromptRequest request, int timeoutMs)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            PromptProviderMapping.EnsureProviderCompatible(request, ProviderKey, ProviderName);
+
+            string apiKey = apiKeyProvider?.Invoke() ?? string.Empty;
+            Log("[KIMI] Provider OpenAI-compatible selecionado.");
+            Log("[KIMI] Modelo: " + ModelName);
+            Log("[KIMI] Requisicao tipada: " + request.Messages.Count + " mensagem(ns).");
+            Log("[KIMI] API key configurada: " + (!string.IsNullOrWhiteSpace(apiKey)).ToString().ToLowerInvariant());
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+                throw new InvalidOperationException("Chave da API Kimi nao configurada.");
+
+            string url = baseUrl.TrimEnd('/') + "/chat/completions";
+            string responseText = await SendRequestAsync(url, includeFlagsLocal => BuildTypedRequestBody(request, includeFlagsLocal), apiKey, timeoutMs, includeFlags: true).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(responseText))
+            {
+                Log("[KIMI] Resposta chars: " + responseText.Length);
+                return responseText;
+            }
+
+            throw new InvalidOperationException("Kimi retornou resposta vazia ou sem texto.");
+        }
+
+        /// <summary>
+        /// Corpo JSON do caminho legado AskAsync(string). Puro: nao faz HTTP.
+        /// Mantem o system hardcoded historico e o temperature 0.2 do caminho legado.
+        /// </summary>
+        internal JObject BuildLegacyRequestBody(string prompt, bool includeFlags)
         {
             var body = new JObject
             {
@@ -129,6 +170,39 @@ namespace atcIA
                 body["enable_search"] = true;
             if (includeFlags && enableThinking)
                 body["enable_thinking"] = true;
+
+            return body;
+        }
+
+        /// <summary>
+        /// Corpo JSON tipado. Puro: nao faz HTTP.
+        /// Usa apenas as mensagens do PromptRequest: nenhum system adicional e injetado.
+        /// </summary>
+        internal JObject BuildTypedRequestBody(PromptRequest request, bool includeFlags)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            PromptProviderMapping.EnsureProviderCompatible(request, ProviderKey, ProviderName);
+
+            var body = new JObject
+            {
+                ["model"] = PromptProviderMapping.ResolveModel(request, ModelName),
+                ["messages"] = PromptProviderMapping.BuildOpenAiMessages(request),
+                ["temperature"] = 0.2
+            };
+
+            if (includeFlags && enableSearch)
+                body["enable_search"] = true;
+            if (includeFlags && enableThinking)
+                body["enable_thinking"] = true;
+
+            return body;
+        }
+
+        private async Task<string> SendRequestAsync(string url, Func<bool, JObject> buildBody, string apiKey, int timeoutMs, bool includeFlags)
+        {
+            JObject body = buildBody(includeFlags);
 
             HttpResponseMessage response;
             string result;
@@ -166,7 +240,7 @@ namespace atcIA
                     else
                         Log("[KIMI] Erro temporário com flags extras; repetindo sem enable_search/enable_thinking. Status=" + (int)response.StatusCode);
 
-                    string retryResult = await SendRequestAsync(url, prompt, apiKey, timeoutMs, includeFlags: false).ConfigureAwait(false);
+                    string retryResult = await SendRequestAsync(url, buildBody, apiKey, timeoutMs, includeFlags: false).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(retryResult))
                         return retryResult;
 

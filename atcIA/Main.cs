@@ -1,5 +1,7 @@
 using GptBolDll;
 using GptBolDll.Configuration;
+using GptBolDll.Core.Contracts;
+using GptBolDll.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -9,6 +11,21 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using Iazeitor.KnowledgeEngine.Application.Gateway;
+using Iazeitor.KnowledgeEngine.Application.Queries;
+using Iazeitor.KnowledgeEngine.Acquisition.Services;
+using Iazeitor.KnowledgeEngine.Contracts.Catalog;
+using Iazeitor.KnowledgeEngine.Contracts.Gateway;
+using Iazeitor.KnowledgeEngine.Contracts.Persistence;
+using Iazeitor.KnowledgeEngine.Contracts.Reading;
+using Iazeitor.KnowledgeEngine.Contracts.Shared;
+using Iazeitor.KnowledgeEngine.Domain.Catalog;
+using Iazeitor.KnowledgeEngine.Infrastructure.Catalog;
+using Iazeitor.KnowledgeEngine.Infrastructure.Persistence;
+using Iazeitor.KnowledgeEngine.Planning.Services;
+using Iazeitor.KnowledgeEngine.Quality.Services;
+using Iazeitor.KnowledgeEngine.Routing.Services;
+using Iazeitor.KnowledgeEngine.Updating.Services;
 
 namespace atcIA
 {
@@ -16,6 +33,8 @@ namespace atcIA
     {
         private INI cINI;
         private AgentCore agentCore;
+        private RequestExecutionEngine requestExecutionEngine;
+        private RequestContext requestContext;
         private ToolDispatcher toolDispatcherPrincipal;
         private Timer clipboardTimer;
         private string previousClipboardText = "";
@@ -48,6 +67,12 @@ namespace atcIA
             buttonStatus.Refresh();
             string projectRoot = ObterPastaProjetoAtiva();
             var projetoAtivo = ObterProjetoAtivo();
+            var providerConfigurado = projetoAtivo == null
+                ? null
+                : AiProviderRepository.BuscarPorId(projetoAtivo.AiProviderId);
+            if (!ValidarProviderAntesDaFactory(projetoAtivo, providerConfigurado, true))
+                return;
+
             var provider = AiProviderRepository.BuscarAtivoOuPadrao(projetoAtivo == null ? AiProviderConfig.DefaultProviderId : projetoAtivo.AiProviderId);
             string apiKey = ObterApiKeyParaProvider(provider);
 
@@ -219,16 +244,24 @@ namespace atcIA
         {
             processamentoComplementoAtual = isComplementoOperacao;
             AtualizarLanguageProfileDoProjetoAtivo();
-            PrepararAgentCoreParaProjetoAtivo();
-
             var projetoAtivo = ObterProjetoAtivo();
-            if (projetoAtivo != null && salvarPendente && !string.IsNullOrWhiteSpace(entradaUsuario))
-                PendingInstructionRepository.Save(projetoAtivo.Id, entradaUsuario);
-
             bool processamentoConcluido = false;
+            bool solicitarTrocaProviderPorRateLimit = false;
+            string providerIdAntesDoRateLimit = projetoAtivo == null ? string.Empty : (projetoAtivo.AiProviderId ?? string.Empty);
             textBoxLog.Clear();
             PrepararLogTecnico();
             dllExecutionLogger?.Clear();
+
+            var providerAntesDaFactory = projetoAtivo == null
+                ? null
+                : AiProviderRepository.BuscarPorId(projetoAtivo.AiProviderId);
+            if (!ValidarProviderAntesDaFactory(projetoAtivo, providerAntesDaFactory, true))
+                return;
+
+            PrepararAgentCoreParaProjetoAtivo();
+            if (projetoAtivo != null && salvarPendente && !string.IsNullOrWhiteSpace(entradaUsuario))
+                PendingInstructionRepository.Save(projetoAtivo.Id, entradaUsuario);
+
             IniciarIndicadorProcessamento();
 
             try
@@ -310,21 +343,28 @@ namespace atcIA
             }
             catch (Exception ex)
             {
-                string mensagemUsuario = FormatarMensagemErroUsuario(ex, papelProcessamentoAtual);
-                mensagemUsuario = AjustarMensagemQuotaOpenAIComResultado(mensagemUsuario);
-
-                papelProcessamentoAtual = string.Empty;
-                AtualizarStatusProcessamento("Erro durante processamento");
-
-                textBoxLog.AppendText("[ERRO] " + ex.Message + Environment.NewLine);
-                RegistrarExcecaoDetalhada(ex);
-
-                if (!string.Equals(mensagemUsuario, ex.Message, StringComparison.Ordinal))
-                    textBoxLog.AppendText("[ERRO-USUARIO] " + mensagemUsuario + Environment.NewLine);
-
-                MessageBox.Show(mensagemUsuario, "Erro no processamento", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
+                if (EncontrarProviderRateLimitException(ex) != null)
+                    dllExecutionLogger?.Info("[MAIN] Recebida ProviderRateLimitException");
+                var rateLimit = EncontrarProviderRateLimitException(ex);
+                if (rateLimit != null)
+                {
+                    solicitarTrocaProviderPorRateLimit = true;
+                    dllExecutionLogger?.Info("[PROVIDER-RATE-LIMIT] HTTP 429 recebido; aguardando troca manual de provider.");
+                    textBoxLog.AppendText("[WARN] Limite de uso atingido. Selecione outro provider para continuar." + Environment.NewLine);
+                }
+                else
+                {
+                    string mensagemUsuario = FormatarMensagemErroUsuario(ex, papelProcessamentoAtual);
+                    mensagemUsuario = AjustarMensagemQuotaOpenAIComResultado(mensagemUsuario);
+                    papelProcessamentoAtual = string.Empty;
+                    AtualizarStatusProcessamento("Erro durante processamento");
+                    textBoxLog.AppendText("[ERRO] " + ex.Message + Environment.NewLine);
+                    RegistrarExcecaoDetalhada(ex);
+                    if (!string.Equals(mensagemUsuario, ex.Message, StringComparison.Ordinal))
+                        textBoxLog.AppendText("[ERRO-USUARIO] " + mensagemUsuario + Environment.NewLine);
+                    MessageBox.Show(mensagemUsuario, "Erro no processamento", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }            finally
             {
                 FinalizarIndicadorProcessamento(
                     processamentoConcluido
@@ -334,6 +374,10 @@ namespace atcIA
                 if (!processamentoConcluido && projetoAtivo != null)
                     RecarregarInstrucaoPendente(projetoAtivo, false);
             }
+            if (solicitarTrocaProviderPorRateLimit)
+                await RetomarAposTrocaDeProviderPorRateLimit(entradaUsuario, salvarPendente, limparContinuacaoAoConcluir, isComplementoOperacao, providerIdAntesDoRateLimit);
+
+            requestExecutionEngine?.Finalizar(requestContext);
         }
 
         private void IncrementarVersaoProjetoDestinoSeNecessario(Projeto projeto)
@@ -379,9 +423,67 @@ namespace atcIA
             }
         }
 
+        private static ProviderRateLimitException EncontrarProviderRateLimitException(Exception ex)
+        {
+            while (ex != null)
+            {
+                var rateLimit = ex as ProviderRateLimitException;
+                if (rateLimit != null)
+                    return rateLimit;
+                ex = ex.InnerException;
+            }
+            return null;
+        }
+
+        private async System.Threading.Tasks.Task RetomarAposTrocaDeProviderPorRateLimit(string entradaUsuario, bool salvarPendente, bool limparContinuacaoAoConcluir, bool isComplementoOperacao, string providerIdAnterior)
+        {
+            var projeto = ObterProjetoAtivo();
+            var providersParaFallback = AiProviderRepository.Listar() ?? new List<AiProviderConfig>();
+            var providersAtivosParaFallback = providersParaFallback.Where(p => p != null && p.Ativo).ToList();
+            dllExecutionLogger?.Info("[FORM-LINGUAGENS] Main provider atual: " + (aiProviderAtual == null ? string.Empty : aiProviderAtual.Nome ?? aiProviderAtual.Id));
+            dllExecutionLogger?.Info("[FORM-LINGUAGENS] Main providerIdAtual: " + (providerIdAnterior ?? string.Empty));
+            dllExecutionLogger?.Info("[FORM-LINGUAGENS] Main providers ativos retornados: " + providersAtivosParaFallback.Count);
+            using (var form = new FormLinguagens(providerIdAnterior))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(form.SelectedProviderId))
+                {
+                    dllExecutionLogger?.Info("[PROVIDER-RATE-LIMIT] Seleção de IA cancelada.");
+                    return;
+                }
+
+                if (string.Equals(form.SelectedProviderId, providerIdAnterior, StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show("Selecione um provider ativo diferente para continuar.", "Provider não alterado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var provider = AiProviderRepository.BuscarPorId(form.SelectedProviderId);
+                if (provider == null || !provider.Ativo)
+                {
+                    MessageBox.Show("Selecione um provider ativo para continuar.", "Provider inativo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (projeto == null)
+                    return;
+
+                projeto.AiProviderId = provider.Id;
+                ProjetoRepository.Atualizar(projeto);
+                aiProviderAtual = provider;
+                dllExecutionLogger?.Info("[PROVIDER-RATE-LIMIT] Provider alternativo selecionado: " + provider.Nome);
+            }
+
+            PrepararAgentCoreParaProjetoAtivo();
+            await AcionaProcessamentoAsync(entradaUsuario, salvarPendente, limparContinuacaoAoConcluir, isComplementoOperacao);
+        }
         private static string FormatarMensagemErroUsuario(Exception ex, string etapaProcessamento = null)
         {
             string mensagem = ex == null ? string.Empty : ex.Message ?? string.Empty;
+            var providerInactive = EncontrarProviderInactiveException(ex);
+
+            if (providerInactive != null)
+                return "A IA configurada para este projeto est\u00E1 inativa: " + providerInactive.ProviderName + ". Ative o provider nas configura\u00E7\u00F5es de IAs ou selecione outra IA no projeto.";
+
             var kimiUnavailable = EncontrarProviderUnavailableException(ex);
 
             if (kimiUnavailable != null)
@@ -406,6 +508,19 @@ namespace atcIA
             return mensagem;
         }
 
+        private static ProviderInactiveException EncontrarProviderInactiveException(Exception ex)
+        {
+            while (ex != null)
+            {
+                var providerInactive = ex as ProviderInactiveException;
+                if (providerInactive != null)
+                    return providerInactive;
+
+                ex = ex.InnerException;
+            }
+
+            return null;
+        }
         private static ProviderUnavailableException EncontrarProviderUnavailableException(Exception ex)
         {
             while (ex != null)
@@ -1659,6 +1774,13 @@ namespace atcIA
 
             try
             {
+                var projetoAntesDaFactory = ObterProjetoAtivo();
+                var providerAntesDaFactory = projetoAntesDaFactory == null
+                    ? null
+                    : AiProviderRepository.BuscarPorId(projetoAntesDaFactory.AiProviderId);
+                if (!ValidarProviderAntesDaFactory(projetoAntesDaFactory, providerAntesDaFactory, true))
+                    return;
+
                 PrepararAgentCoreParaProjetoAtivo();
                 papelProcessamentoAtual = "Analista";
                 var resultado = await agentCore.ExecutarGeracaoRequisicaoAsync(textBox1.Text);
@@ -1767,16 +1889,81 @@ namespace atcIA
             AtualizarStatusStrip();
         }
 
+        private bool ValidarProviderAntesDaFactory(Projeto projeto, AiProviderConfig provider, bool mostrarMensagem)
+        {
+
+            if (provider == null)
+            {
+                dllExecutionLogger?.Info("[PROJETO-IA] Execução bloqueada antes da factory: provider não encontrado.");
+                if (mostrarMensagem)
+                    MessageBox.Show("A IA configurada para este projeto não foi encontrada. Selecione uma IA válida nas configurações do projeto.", "IA não encontrada", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            bool apiKeyConfigurada = !string.IsNullOrWhiteSpace(provider.ApiKey) ||
+                !string.IsNullOrWhiteSpace(ObterApiKeyPorNome(provider.ApiKeyConfigName));
+            bool modeloConfigurado = !string.IsNullOrWhiteSpace(provider.ModelName);
+
+            if (!provider.Ativo)
+            {
+                RegistrarDiagnosticoProviderInvalido(projeto, provider, apiKeyConfigurada, modeloConfigurado);
+                dllExecutionLogger?.Info("[PROJETO-IA] Execução bloqueada antes da factory: provider inativo.");
+                if (mostrarMensagem)
+                    MessageBox.Show("A IA configurada para este projeto está inativa: " + provider.Nome + ". Ative esta IA nas configurações de IAs ou selecione outra IA no projeto.", "IA inativa", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            if (!apiKeyConfigurada)
+            {
+                RegistrarDiagnosticoProviderInvalido(projeto, provider, apiKeyConfigurada, modeloConfigurado);
+                dllExecutionLogger?.Info("[PROJETO-IA] Execução bloqueada antes da factory: API key ausente.");
+                if (mostrarMensagem)
+                    MessageBox.Show("A IA configurada para este projeto não possui API key configurada: " + provider.Nome + ". Configure a chave nas configurações de IAs antes de usar.", "API key ausente", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            if (!modeloConfigurado)
+            {
+                RegistrarDiagnosticoProviderInvalido(projeto, provider, apiKeyConfigurada, modeloConfigurado);
+                dllExecutionLogger?.Info("[PROJETO-IA] Execução bloqueada antes da factory: modelo ausente.");
+                if (mostrarMensagem)
+                    MessageBox.Show("A IA configurada para este projeto não possui modelo configurado: " + provider.Nome + ". Configure o modelo nas configurações de IAs antes de usar.", "Modelo ausente", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            return true;
+        }
+        private void RegistrarDiagnosticoProviderInvalido(Projeto projeto, AiProviderConfig provider, bool apiKeyConfigurada, bool modeloConfigurado)
+        {
+            dllExecutionLogger?.Info("[PROJETO-IA] Pre-validacao do provider iniciada.");
+            dllExecutionLogger?.Info("[PROJETO-IA] Projeto selecionado: " + (projeto == null ? string.Empty : (projeto.Nome ?? string.Empty)));
+            dllExecutionLogger?.Info("[PROJETO-IA] AiProviderId salvo no projeto: " + (projeto == null ? string.Empty : (projeto.AiProviderId ?? string.Empty)));
+            dllExecutionLogger?.Info("[PROJETO-IA] Provider ID: " + (provider == null ? string.Empty : provider.Id ?? string.Empty));
+            dllExecutionLogger?.Info("[PROJETO-IA] Provider Nome: " + (provider == null ? string.Empty : provider.Nome ?? string.Empty));
+            dllExecutionLogger?.Info("[PROJETO-IA] Provider Ativo: " + (provider != null && provider.Ativo ? "true" : "false"));
+            dllExecutionLogger?.Info("[PROJETO-IA] Provider API key configurada: " + (apiKeyConfigurada ? "true" : "false"));
+            dllExecutionLogger?.Info("[PROJETO-IA] Provider Modelo configurado: " + (modeloConfigurado ? "true" : "false"));
+        }
         private void PrepararAgentCoreParaProjetoAtivo()
         {
+            var projeto = ObterProjetoAtivo();
+            AtualizarProvidersRuntime();
+            var provider = ObterProviderRuntimeAtual(projeto);
+            if (!ValidarProviderAntesDaFactory(projeto, provider, false))
+                return;
+
+            if (agentCore == null)
+            {
+                agentCore = CriarAgentCoreParaProjetoAtual(toolDispatcherPrincipal);
+                if (agentCore == null)
+                    return;
+            }
+
             if (agentCore != null)
             {
                 agentCore.LanguageProfile = languageProfileAtual;
                 agentCore.LanguageProfileId = languageProfileIdAtual;
                 agentCore.AnalystPromptPath = ConfigManager.GetAnalystPromptPath();
-                var projeto = ObterProjetoAtivo();
-                AtualizarProvidersRuntime();
-                var provider = ObterProviderRuntimeAtual(projeto);
                 agentCore.ComplementPromptPath = ConfigManager.GetComplementPromptPath();
                 agentCore.KnowledgeIndexPath = projeto == null ? string.Empty : projeto.KnowledgeIndexPath ?? string.Empty;
                 agentCore.AutoVerificationEnabled = projeto != null && projeto.AutoVerificationEnabled;
@@ -1794,7 +1981,7 @@ namespace atcIA
                     dllExecutionLogger?.Info("[INFO] Verificação automática desabilitada para o projeto.");
 
                 LogProviderRuntime(provider);
-                if (provider != null && string.Equals(provider.ProviderType, AiProviderConfig.KimiProviderType, StringComparison.OrdinalIgnoreCase))
+                if (provider != null && ProviderTypeHelper.IsKimiOpenAICompatible(provider.ProviderType))
                     dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff não aplicado ao Analista.");
             }
         }
@@ -1813,12 +2000,73 @@ namespace atcIA
             var projeto = ObterProjetoAtivo();
             AtualizarProvidersRuntime();
             var provider = ObterProviderRuntimeAtual(projeto);
+            if (!ValidarProviderAntesDaFactory(projeto, provider, false))
+                return null;
+
             var client = CriarClientParaPapel(provider, "Programador");
             var analystClient = CriarClientParaPapel(provider, "Analista");
             int nivelIa = provider.NivelMaximoSuportado;
 
             if (toolDispatcher is ToolDispatcher dispatcher)
                 dispatcher.AutoVerificationEnabled = projeto != null && projeto.AutoVerificationEnabled;
+
+            var requestLifecycleManager = new RequestLifecycleManager();
+            var projectContextProvider = new ProjectContextProvider();
+
+            requestExecutionEngine =
+                new RequestExecutionEngine(
+                    requestLifecycleManager,
+                    client,
+                    analystClient,
+                    dllExecutionLogger,
+                    ObterNomeProviderParaPapel(provider, "Programador"),
+                    AtualizarStatusProcessamento,
+                    ConfigManager.GetMaxPromptChars(),
+                    projectContextProvider);
+
+            requestContext = new RequestContext
+            {
+                Provider = provider,
+                WorkingDirectory = projeto != null ? projeto.Caminho : null,
+                StartedAt = DateTime.Now
+            };
+
+            requestExecutionEngine.Inicializar(requestContext);
+
+            var knowledgeCatalog = new KnowledgeCatalog();
+            string knowledgeDataRoot = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "knowledge-data");
+            string knowledgePacksRoot = Path.Combine(knowledgeDataRoot, "packs");
+            string knowledgeBindingsRoot = Path.Combine(knowledgeDataRoot, "bindings");
+            var knowledgePackFileStore = new KnowledgePackFileStore(knowledgePacksRoot);
+            var knowledgePackSerializer = new KnowledgePackSerializer();
+            IKnowledgePackRepository knowledgePackRepository = new KnowledgePackRepository(
+                knowledgePackFileStore,
+                knowledgePackSerializer);
+            IKnowledgePackReader knowledgePackReader = new KnowledgePackReader(
+                knowledgePackRepository);
+            var knowledgePackCatalog = new KnowledgePackCatalog(
+                knowledgePackRepository);
+            IKnowledgePackCatalog persistedKnowledgeCatalog = knowledgePackCatalog;
+            var knowledgeQueryService = new KnowledgeQueryService(knowledgeCatalog, persistedKnowledgeCatalog);
+            var knowledgeRouter = new KnowledgeRouter(knowledgeCatalog, knowledgeQueryService);
+            var knowledgePlanner = new KnowledgePlanner(knowledgeRouter, knowledgeQueryService);
+            var knowledgeAcquisitionService = new KnowledgeAcquisitionService(knowledgePlanner, knowledgeQueryService);
+            var knowledgeQualityService = new KnowledgeQualityService();
+            IProjectKnowledgeBindingStore knowledgeBindingStore =
+                new ProjectKnowledgeBindingStore(knowledgeBindingsRoot, knowledgePackSerializer);
+            var knowledgeUpdateService = new KnowledgeUpdateService(
+                knowledgePackRepository,
+                knowledgeBindingStore);
+            IKnowledgeGateway knowledgeGateway = new KnowledgeGateway(
+                knowledgeQueryService,
+                knowledgeRouter,
+                knowledgePlanner,
+                knowledgeAcquisitionService,
+                knowledgeQualityService,
+                knowledgeUpdateService,
+                knowledgePackReader);
 
             return new AgentCore(
                 client,
@@ -1830,7 +2078,11 @@ namespace atcIA
                 dllExecutionLogger,
                 ObterNomeProviderParaPapel(provider, "Programador"),
                 analystClient,
-                ObterNomeProviderParaPapel(provider, "Analista"))
+                ObterNomeProviderParaPapel(provider, "Analista"),
+                requestExecutionEngine,
+                knowledgeGateway,
+                projectContextProvider,
+                knowledgeBindingStore)
             {
                 LanguageProfile = languageProfileAtual,
                 LanguageProfileId = languageProfileIdAtual,
@@ -1861,32 +2113,12 @@ namespace atcIA
                 }
             }
 
-            LogProviderRuntime(provider, projectRoot);
             if (provider != null && provider.UseGitDiff)
             {
                 dllExecutionLogger?.Info("[GIT-DIFF] Modo GitDiff habilitado para IA " + provider.Nome + ".");
+                dllExecutionLogger?.Info("[FEATURE] GitDiffPromptResolver-v1");
 
-                string gitDiffPromptPath = (provider.GitDiffPromptPath ?? string.Empty).Trim();
-                string gitDiffPromptResolvedPath = ResolverCaminhoPrompt(projectRoot, gitDiffPromptPath);
-                if (string.IsNullOrWhiteSpace(gitDiffPromptResolvedPath) || !File.Exists(gitDiffPromptResolvedPath))
-                {
-                    if (string.IsNullOrWhiteSpace(gitDiffPromptPath))
-                        dllExecutionLogger?.Info("[GIT-DIFF] GitDiffPromptPath não configurado; procurando prompt padrão da instalação.");
-                    else
-                        dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff configurado não encontrado; procurando prompt padrão da instalação.");
-
-                    gitDiffPromptResolvedPath = Path.Combine(AppPaths.BaseDir, "Prompts", "PromptGitDiffPadrao.txt");
-                    dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff padrão: " + gitDiffPromptResolvedPath);
-                }
-
-                bool arquivoExiste = File.Exists(gitDiffPromptResolvedPath);
-                dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff selecionado.");
-                dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff arquivo existe: " + arquivoExiste);
-                if (!arquivoExiste)
-                {
-                    dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff não encontrado: " + gitDiffPromptResolvedPath);
-                    throw new InvalidOperationException("GitDiff está habilitado para esta IA, mas nenhum prompt GitDiff configurado ou padrão foi encontrado.");
-                }
+                string gitDiffPromptResolvedPath = ResolverGitDiffPromptPath(projectRoot, provider);
 
                 string promptGitDiff = PromptLoader.LoadPrompt(projectRoot, gitDiffPromptResolvedPath) ?? string.Empty;
                 string promptFinal = AnexarBlocoForcadoGitDiffKimi(promptGitDiff, provider);
@@ -1905,6 +2137,43 @@ namespace atcIA
             string promptOriginalTexto = PromptLoader.LoadPrompt(projectRoot, promptOriginalResolvido) ?? string.Empty;
             RegistrarDiagnosticoPromptFinalKimi(promptOriginalTexto, provider);
             return promptOriginalTexto;
+        }
+
+        private string ResolverGitDiffPromptPath(string projectRoot, AiProviderConfig provider)
+        {
+            var candidatos = new List<string>();
+
+            string providerPath = (provider?.GitDiffPromptPath ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(providerPath))
+                candidatos.Add(ResolverCaminhoPrompt(projectRoot, providerPath));
+
+            if (!string.IsNullOrWhiteSpace(projectRoot))
+            {
+                candidatos.Add(Path.Combine(projectRoot, "PromptGitDiffPadrao-v2.txt"));
+                candidatos.Add(Path.Combine(projectRoot, "PromptGitDiffPadrao.txt"));
+            }
+
+            string baseDir = AppPaths.BaseDir ?? AppDomain.CurrentDomain.BaseDirectory;
+            candidatos.Add(Path.Combine(baseDir, "PromptGitDiffPadrao-v2.txt"));
+            candidatos.Add(Path.Combine(baseDir, "PromptGitDiffPadrao.txt"));
+            candidatos.Add(Path.Combine(baseDir, "Prompts", "PromptGitDiffPadrao-v2.txt"));
+            candidatos.Add(Path.Combine(baseDir, "Prompts", "PromptGitDiffPadrao.txt"));
+
+            foreach (string caminho in candidatos)
+            {
+                dllExecutionLogger?.Info("[GIT-DIFF] Testando: " + caminho);
+            }
+
+            string escolhido = candidatos.FirstOrDefault(c => File.Exists(c));
+
+            if (!string.IsNullOrWhiteSpace(escolhido))
+            {
+                dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff escolhido: " + escolhido);
+                return escolhido;
+            }
+
+            dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff não encontrado em nenhum candidato.");
+            throw new InvalidOperationException("GitDiff está habilitado para esta IA, mas nenhum prompt GitDiff configurado ou padrão foi encontrado.");
         }
 
         private string AnexarBlocoForcadoGitDiffKimi(string promptBase, AiProviderConfig provider)
@@ -1986,8 +2255,7 @@ namespace atcIA
             if (string.Equals(provider.Id, AiProviderConfig.KimiProviderId, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (!string.IsNullOrWhiteSpace(provider.ProviderType) &&
-                provider.ProviderType.IndexOf("Kimi", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (ProviderTypeHelper.IsKimi(provider.ProviderType))
                 return true;
 
             if (!string.IsNullOrWhiteSpace(provider.Nome) &&
@@ -2013,9 +2281,7 @@ namespace atcIA
         private void AtualizarProvidersRuntime()
         {
             AiProviderRepository.Listar();
-            dllExecutionLogger?.Info("[CONFIG] Providers recarregados antes da execução.");
         }
-
         private AiProviderConfig ObterProviderRuntimeAtual(Projeto projeto)
         {
             var providers = AiProviderRepository.Listar();
@@ -2025,72 +2291,39 @@ namespace atcIA
             if (provider == null)
                 provider = AiProviderRepository.BuscarAtivoOuPadrao(projeto == null ? AiProviderConfig.DefaultProviderId : projeto.AiProviderId);
 
+            RegistrarDiagnosticoProjetoProvider(projeto, provider);
             aiProviderAtual = provider;
             return provider;
         }
 
+        private void RegistrarDiagnosticoProjetoProvider(Projeto projeto, AiProviderConfig provider)
+        {
+            if (provider == null || !provider.Ativo || string.IsNullOrWhiteSpace(provider.ModelName) ||
+                (string.IsNullOrWhiteSpace(provider.ApiKey) && string.IsNullOrWhiteSpace(ObterApiKeyPorNome(provider.ApiKeyConfigName))))
+            {
+                bool apiKeyConfigurada = provider != null &&
+                    (!string.IsNullOrWhiteSpace(provider.ApiKey) || !string.IsNullOrWhiteSpace(ObterApiKeyPorNome(provider.ApiKeyConfigName)));
+                RegistrarDiagnosticoProviderInvalido(projeto, provider, apiKeyConfigurada, provider != null && !string.IsNullOrWhiteSpace(provider.ModelName));
+            }
+        }
         private AiProviderConfig SelecionarProviderRuntime(List<AiProviderConfig> providers, Projeto projeto)
         {
-            if (providers == null || providers.Count == 0)
-                return null;
-
-            string projetoProviderId = projeto == null ? string.Empty : (projeto.AiProviderId ?? string.Empty).Trim();
-            if (!string.IsNullOrWhiteSpace(projetoProviderId))
-            {
-                var porId = providers.FirstOrDefault(p => string.Equals(p.Id, projetoProviderId, StringComparison.OrdinalIgnoreCase));
-                if (porId != null)
-                    return porId;
-            }
-
-            if (aiProviderAtual != null && !string.IsNullOrWhiteSpace(aiProviderAtual.Id))
-            {
-                var porIdPersistido = providers.FirstOrDefault(p => string.Equals(p.Id, aiProviderAtual.Id, StringComparison.OrdinalIgnoreCase));
-                if (porIdPersistido != null)
-                    return porIdPersistido;
-            }
-
-            if (aiProviderAtual != null)
-            {
-                var porTipoModelo = providers.FirstOrDefault(p =>
-                    string.Equals(p.ProviderType, aiProviderAtual.ProviderType, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(p.ModelName, aiProviderAtual.ModelName, StringComparison.OrdinalIgnoreCase));
-                if (porTipoModelo != null)
-                    return porTipoModelo;
-
-                var porNomeModelo = providers.FirstOrDefault(p =>
-                    string.Equals(p.Nome, aiProviderAtual.Nome, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(p.ModelName, aiProviderAtual.ModelName, StringComparison.OrdinalIgnoreCase));
-                if (porNomeModelo != null)
-                    return porNomeModelo;
-
-                var porNome = providers.FirstOrDefault(p => string.Equals(p.Nome, aiProviderAtual.Nome, StringComparison.OrdinalIgnoreCase));
-                if (porNome != null)
-                    return porNome;
-            }
-
-            return providers.FirstOrDefault(p => p.Ativo) ?? providers.FirstOrDefault();
+            return ProviderSelector.Select(providers, projeto?.AiProviderId, aiProviderAtual);
         }
 
         private void LogProviderRuntime(AiProviderConfig provider, string projectRoot = null)
         {
-            string nome = provider == null ? string.Empty : provider.Nome;
-            string id = provider == null ? string.Empty : provider.Id;
-            string modelo = provider == null ? string.Empty : provider.ModelName;
-            string promptPath = provider == null ? string.Empty : provider.PromptPath ?? string.Empty;
-            string gitDiffPromptPath = provider == null ? string.Empty : provider.GitDiffPromptPath ?? string.Empty;
+            if (provider == null)
+            {
+                dllExecutionLogger?.Info("[GIT-DIFF] Provider nao encontrado ao preparar prompt.");
+                return;
+            }
 
-            dllExecutionLogger?.Info("[GIT-DIFF] Provider runtime selecionado: " + nome);
-            dllExecutionLogger?.Info("[GIT-DIFF] Provider runtime modelo: " + modelo);
-            dllExecutionLogger?.Info("[GIT-DIFF] Provider runtime id: " + id);
-            dllExecutionLogger?.Info("[GIT-DIFF] Provider config encontrado: " + (provider != null ? "true" : "false"));
-            dllExecutionLogger?.Info("[GIT-DIFF] UseGitDiff runtime: " + (provider != null && provider.UseGitDiff ? "true" : "false"));
-            dllExecutionLogger?.Info("[GIT-DIFF] PromptPath runtime vazio: " + (string.IsNullOrWhiteSpace(promptPath) ? "true" : "false"));
-            dllExecutionLogger?.Info("[GIT-DIFF] GitDiffPromptPath runtime vazio: " + (string.IsNullOrWhiteSpace(gitDiffPromptPath) ? "true" : "false"));
-            dllExecutionLogger?.Info("[GIT-DIFF] GitDiffPromptPath runtime: " + gitDiffPromptPath);
-            if (!string.IsNullOrWhiteSpace(projectRoot))
-                dllExecutionLogger?.Info("[GIT-DIFF] GitDiffPromptPath arquivo existe: " + File.Exists(ResolverCaminhoPrompt(projectRoot, gitDiffPromptPath)));
+            if (!provider.UseGitDiff)
+                return;
+
+            dllExecutionLogger?.Info("[GIT-DIFF] Prompt GitDiff sera resolvido para IA " + provider.Nome + ".");
         }
-
         private AiProviderConfig ObterProviderAtivo(Projeto projeto)
         {
             return ObterProviderRuntimeAtual(projeto);
@@ -2131,7 +2364,7 @@ namespace atcIA
         private static bool ProviderEhGemini(AiProviderConfig provider)
         {
             return provider != null &&
-                   string.Equals(provider.ProviderType, "Gemini", StringComparison.OrdinalIgnoreCase);
+                   ProviderTypeHelper.IsGemini(provider.ProviderType);
         }
 
         private static string ObterNomeProviderParaPapel(AiProviderConfig provider, string papel)

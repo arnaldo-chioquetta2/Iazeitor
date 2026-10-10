@@ -9,7 +9,7 @@ namespace atcIA
 {
     public partial class FormConfiguracoes : Form
     {
-        private const string FeatureMarker = "PromptProviderLoadFix-v1;GitDiffConfigTraceFix-v1";
+        private const string FeatureMarker = "PromptProviderLoadFix-v1;GitDiffConfigTraceFix-v1;KimiOfficialActivationGuard-v1;KimiOfficialConfigTrace-v1;ProviderDuplicateGuard-v1;AiProviderPathUnify-v1;KimiLegacyUiHidden-v1;SecretFieldMask-v1;ProviderUiStateSync-v1;ProviderPersistenceFix-v1";
         private List<AiProviderConfig> providers = new List<AiProviderConfig>();
 
         public FormConfiguracoes()
@@ -30,6 +30,8 @@ namespace atcIA
 
         private void CarregarProviders()
         {
+            LogConfig("[CONFIG-IA] BaseDirectory UI: " + AppDomain.CurrentDomain.BaseDirectory);
+            LogConfig("[CONFIG-IA] Arquivo providers usado pela UI: " + AppPaths.GetAiProvidersPath());
             providers = AiProviderRepository.Listar();
             listBoxAiProviders.Items.Clear();
             foreach (var provider in providers)
@@ -92,12 +94,47 @@ namespace atcIA
             }
         }
 
+        private void AtualizarProviderAtualDaTela()
+        {
+            if (providers == null || txtAiId == null)
+                return;
+
+            string providerId = (txtAiId.Text ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(providerId))
+                return;
+
+            var provider = providers.FirstOrDefault(p => p != null && string.Equals(p.Id, providerId, StringComparison.OrdinalIgnoreCase));
+            if (provider == null)
+                return;
+
+            provider.Id = providerId;
+            provider.Nome = (txtAiNome.Text ?? string.Empty).Trim();
+            provider.ProviderType = (cboProviderType.Text ?? string.Empty).Trim();
+            provider.ModelName = (txtAiModel.Text ?? string.Empty).Trim();
+            provider.ApiKey = txtAiKey.Text ?? string.Empty;
+            provider.ApiKeyConfigName = ObterApiKeyConfigName(provider.ProviderType, provider.Id);
+            provider.PromptPath = (textBox2.Text ?? string.Empty).Trim();
+            provider.GitDiffPromptPath = (txGitDiff.Text ?? string.Empty).Trim();
+            provider.NivelMaximoSuportado = (int)numericAiNivel.Value;
+            provider.Ativo = chkAiAtivo.Checked;
+            provider.UseGitDiff = ckGitDiff.Checked;
+        }
+
         private void listBoxAiProviders_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (listBoxAiProviders.SelectedIndex < 0 || listBoxAiProviders.SelectedIndex >= providers.Count)
                 return;
 
+            AtualizarProviderAtualDaTela();
+
+            string providerIdAnterior = txtAiId == null ? string.Empty : (txtAiId.Text ?? string.Empty).Trim();
+            var providerAnterior = providers.FirstOrDefault(p => p != null && string.Equals(p.Id, providerIdAnterior, StringComparison.OrdinalIgnoreCase));
+            LogConfig("[CONFIG-TRACE] Provider atual antes da troca: " + (providerAnterior == null ? string.Empty : providerAnterior.Nome ?? providerAnterior.Id));
+            LogConfig("[CONFIG-TRACE] API key preenchida na tela: " + (txtAiKey != null && !string.IsNullOrWhiteSpace(txtAiKey.Text) ? "true" : "false"));
+            LogConfig("[CONFIG-TRACE] Provider em memoria possui API key: " + (providerAnterior != null && !string.IsNullOrWhiteSpace(providerAnterior.ApiKey) ? "true" : "false"));
+
             CarregarProviderNaTela(providers[listBoxAiProviders.SelectedIndex]);
+            LogConfig("[CONFIG-TRACE] Provider anterior em memoria possui API key: " + (providerAnterior != null && !string.IsNullOrWhiteSpace(providerAnterior.ApiKey) ? "true" : "false"));
         }
 
         private void CarregarProviderNaTela(AiProviderConfig provider)
@@ -107,6 +144,7 @@ namespace atcIA
 
             LogToConfigTrace("[CONFIG-UI] Provider selecionado tela: " + provider.Nome);
             LogToConfigTrace("[CONFIG-UI] ProviderId tela: " + provider.Id);
+            LogToConfigTrace("[CONFIG-TRACE] Provider antes controles Id=" + provider.Id + " Nome=" + provider.Nome + " API key=" + (!string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false") + " Modelo=" + (!string.IsNullOrWhiteSpace(provider.ModelName) ? "true" : "false") + " Ativo=" + (provider.Ativo ? "true" : "false"));
             LogToConfigTrace("[CONFIG-UI] txGitDiff.Text antes carregar: " + (txGitDiff == null ? string.Empty : (txGitDiff.Text ?? string.Empty)));
             LogToConfigTrace("[CONFIG-UI] provider.GitDiffPromptPath: " + (provider.GitDiffPromptPath ?? string.Empty));
 
@@ -118,7 +156,13 @@ namespace atcIA
             numericAiNivel.Value = AiProviderConfig.ClampLevel(provider.NivelMaximoSuportado);
             chkAiAtivo.Checked = provider.Ativo;
             ckGitDiff.Checked = provider.UseGitDiff;
+            LogToConfigTrace("[CONFIG-TRACE] Controles apos carregar txtAiKey vazio=" + (string.IsNullOrWhiteSpace(txtAiKey.Text) ? "true" : "false") + " txtAiModel vazio=" + (string.IsNullOrWhiteSpace(txtAiModel.Text) ? "true" : "false") + " Ativo=" + (chkAiAtivo.Checked ? "true" : "false"));
             LogProviderSelection(provider);
+            if (ProviderTypeHelper.IsKimiOfficial(provider.ProviderType))
+            {
+                LogConfig("[KIMI-OFICIAL] Provider ativo: " + (provider.Ativo ? "true" : "false"));
+                LogConfig("[KIMI-OFICIAL] API key configurada: " + (!string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false"));
+            }
             textBox2.Text = ObterPromptOriginalParaTela(provider, out bool usouFallbackGlobal);
             txGitDiff.Text = provider.GitDiffPromptPath ?? string.Empty;
             LogToConfigTrace("[CONFIG] txGitDiff carregado do provider: " + (provider != null ? "true" : "false"));
@@ -184,6 +228,28 @@ namespace atcIA
             if (provider == null)
                 throw new InvalidOperationException("Nenhum provider selecionado para salvar.");
 
+            string providerIdTela = (txtAiId.Text ?? string.Empty).Trim();
+            string providerTypeTela = (cboProviderType.Text ?? string.Empty).Trim();
+            if (ProviderTypeHelper.IsKimiOfficial(providerTypeTela))
+            {
+                bool apiKeyConfigurada = !string.IsNullOrWhiteSpace(txtAiKey.Text);
+                bool chaveCustomizadaConfigurada = !string.IsNullOrWhiteSpace(textBoxKimiApiKey.Text);
+                LogConfig("[KIMI-OFICIAL] Provider ativo: " + (chkAiAtivo.Checked ? "true" : "false"));
+                LogConfig("[KIMI-OFICIAL] API key configurada: " + (apiKeyConfigurada ? "true" : "false"));
+                if (chkAiAtivo.Checked && !apiKeyConfigurada)
+                {
+                    string mensagem = chaveCustomizadaConfigurada
+                        ? "A chave da Kimi Oficial deve ser informada no campo API key da IA selecionada, nao no campo Kimi OpenAI Compativel."
+                        : "Configure a API key e marque o provider como ativo antes de usar a Kimi Oficial / Moonshot.";
+                    LogConfig("[KIMI-OFICIAL] Ativacao bloqueada: API key da Kimi Oficial ausente.");
+                    MessageBox.Show(mensagem, "Kimi Oficial", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
+                }
+            }
+
+            if (string.Equals(provider.Id, providerIdTela, StringComparison.OrdinalIgnoreCase))
+                AtualizarProviderAtualDaTela();
+
             LogConfig("[CONFIG-UI] Provider salvo visual nome: " + provider.Nome);
             LogConfig("[CONFIG-UI] Provider salvo visual id: " + provider.Id);
             LogConfig("[CONFIG-UI] textBox2.Text salvar: " + (textBox2 == null ? string.Empty : (textBox2.Text ?? string.Empty)));
@@ -204,14 +270,23 @@ namespace atcIA
             LogConfig("[CONFIG] GitDiffPromptPath salvo: " + gitDiffPromptPath);
 
             provider.ProviderType = cboProviderType.Text.Trim();
-            provider.ModelName = string.IsNullOrWhiteSpace(txtAiModel.Text) ? ObterModeloPadrao(cboProviderType.Text) : txtAiModel.Text.Trim();
-            provider.ApiKeyConfigName = ObterApiKeyConfigName(cboProviderType.Text, providerId);
-            provider.ApiKey = txtAiKey.Text;
+            provider.ModelName = string.IsNullOrWhiteSpace(provider.ModelName) ? ObterModeloPadrao(provider.ProviderType) : provider.ModelName.Trim();
+            provider.ApiKeyConfigName = ObterApiKeyConfigName(provider.ProviderType, providerId);
+            provider.ApiKey = provider.ApiKey ?? string.Empty;
             provider.PromptPath = promptPath;
             provider.GitDiffPromptPath = gitDiffPromptPath;
             provider.NivelMaximoSuportado = (int)numericAiNivel.Value;
             provider.Ativo = chkAiAtivo.Checked;
             provider.UseGitDiff = useGitDiff;
+            LogProviderPersistencia("[CONFIG-TRACE] Antes AiProviderRepository.Salvar", provider);
+
+            LogConfig("[CONFIG-IA] BaseDirectory UI: " + AppDomain.CurrentDomain.BaseDirectory);
+            LogConfig("[CONFIG-IA] Salvando providers em: " + AppPaths.GetAiProvidersPath());
+            if (ProviderTypeHelper.IsKimiOfficial(provider.ProviderType))
+            {
+                LogConfig("[CONFIG-IA] Kimi Oficial salva Ativo: " + (provider.Ativo ? "true" : "false"));
+                LogConfig("[CONFIG-IA] Kimi Oficial salva API key configurada: " + (!string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false"));
+            }
 
             if (useGitDiff && string.IsNullOrWhiteSpace(gitDiffPromptPath))
                 LogWarningGitDiffSemPrompt(provider);
@@ -231,6 +306,19 @@ namespace atcIA
             LogConfig("[CONFIG-STORE] UseGitDiff recarregado: " + (recarregado != null && recarregado.UseGitDiff ? "true" : "false"));
             LogConfig("[CONFIG-STORE] GitDiffPromptPath recarregado vazio: " + (recarregado == null || string.IsNullOrWhiteSpace(recarregado.GitDiffPromptPath) ? "true" : "false"));
             LogConfig("[CONFIG-STORE] GitDiffPromptPath recarregado: " + (recarregado == null ? string.Empty : recarregado.GitDiffPromptPath ?? string.Empty));
+            LogProviderPersistencia("[CONFIG-TRACE] JSON apos AiProviderRepository.Salvar", recarregado);
+
+            bool persistenciaValida = recarregado != null &&
+                recarregado.Ativo == provider.Ativo &&
+                string.Equals(recarregado.ModelName ?? string.Empty, provider.ModelName ?? string.Empty, StringComparison.Ordinal) &&
+                string.Equals(recarregado.ApiKey ?? string.Empty, provider.ApiKey ?? string.Empty, StringComparison.Ordinal);
+            LogConfig("[CONFIG-STORE] Persistencia validada: " + (persistenciaValida ? "true" : "false"));
+            if (!persistenciaValida)
+            {
+                LogConfig("[CONFIG-UI] ERRO: provider recarregado diverge do provider salvo.");
+                MessageBox.Show("Erro: as configurações da IA não foram persistidas corretamente.", "Salvar configuracoes", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
 
             if (useGitDiff && !string.IsNullOrWhiteSpace(gitDiffPromptPath) &&
                 (recarregado == null || string.IsNullOrWhiteSpace(recarregado.GitDiffPromptPath)))
@@ -363,6 +451,16 @@ namespace atcIA
             LogConfig("[CONFIG] GitDiff carregado para IA " + nome + ": true");
         }
 
+        private static void LogProviderPersistencia(string prefixo, AiProviderConfig provider)
+        {
+            LogConfig(prefixo +
+                " Id=" + (provider == null ? string.Empty : provider.Id ?? string.Empty) +
+                " Nome=" + (provider == null ? string.Empty : provider.Nome ?? string.Empty) +
+                " Ativo=" + (provider != null && provider.Ativo ? "true" : "false") +
+                " Modelo=" + (provider != null && !string.IsNullOrWhiteSpace(provider.ModelName) ? "true" : "false") +
+                " API key=" + (provider != null && !string.IsNullOrWhiteSpace(provider.ApiKey) ? "true" : "false"));
+        }
+
         private static void LogConfig(string mensagem)
         {
             System.Diagnostics.Debug.WriteLine(mensagem);
@@ -384,37 +482,37 @@ namespace atcIA
 
         private static string ObterModeloPadrao(string providerType)
         {
-            if (string.Equals(providerType, "OpenAI", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsOpenAI(providerType))
                 return "gpt-5.2";
-            if (string.Equals(providerType, "Groq", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(providerType, "Grog", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsGroq(providerType))
                 return "llama-3.3-70b-versatile";
-            if (string.Equals(providerType, "Mistral", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(providerType, "Mixtral", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsMistral(providerType))
                 return "codestral-latest";
-            if (string.Equals(providerType, "DeepSeek", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsDeepSeek(providerType))
                 return "deepseek-chat";
-            if (string.Equals(providerType, "KimiOpenAICompatible", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsKimiOpenAICompatible(providerType))
                 return "kimi-k2";
+            if (ProviderTypeHelper.IsKimiOfficial(providerType))
+                return "kimi-k2.6";
 
             return "gemini-2.5-flash";
         }
 
         private static string ObterApiKeyConfigName(string providerType, string id)
         {
-            if (string.Equals(providerType, "OpenAI", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsOpenAI(providerType))
                 return "OpenAiApiKey";
-            if (string.Equals(providerType, "Groq", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(providerType, "Grog", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsGroq(providerType))
                 return "GroqApiKey";
-            if (string.Equals(providerType, "Mistral", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(providerType, "Mixtral", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsMistral(providerType))
                 return "MistralApiKey";
-            if (string.Equals(providerType, "DeepSeek", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsDeepSeek(providerType))
                 return "DeepSeekApiKey";
-            if (string.Equals(providerType, "KimiOpenAICompatible", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsKimiOpenAICompatible(providerType))
                 return "KimiOpenAIApiKey";
-            if (string.Equals(providerType, "Gemini", StringComparison.OrdinalIgnoreCase))
+            if (ProviderTypeHelper.IsKimiOfficial(providerType))
+                return "KimiOfficialApiKey";
+            if (ProviderTypeHelper.IsGemini(providerType))
                 return "GeminiApiKey";
 
             return (id ?? string.Empty).Trim() + "ApiKey";

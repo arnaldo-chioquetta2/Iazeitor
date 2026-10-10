@@ -15,6 +15,11 @@ namespace atcIA
             get { return Path.Combine(BaseDir, "dados"); }
         }
 
+        public static string GetAiProvidersPath()
+        {
+            return Path.Combine(DadosDir, "ai-providers.json");
+        }
+
         public static string LegacyDadosDir
         {
             get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "atcIA"); }

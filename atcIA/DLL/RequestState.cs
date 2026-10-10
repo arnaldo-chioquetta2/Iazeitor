@@ -1,0 +1,30 @@
+namespace GptBolDll
+{
+    public enum RequestState
+    {
+        None,
+        Created,
+        PreparingProject,
+        SelectingProvider,
+        BuildingPrompt,
+        LoadingContext,
+        WaitingAnalyst,
+        WaitingProgrammer,
+        WaitingProvider,
+        ParsingResponse,
+        ValidatingResponse,
+        PreparingActions,
+        DispatchingActions,
+        WaitingUserConfirmation,
+        Retrying,
+        Degraded,
+        GitDiffDetected,
+        Finalizing,
+        Completed,
+        CompletedWithWarnings,
+        CompletedWithRetry,
+        Failed,
+        WaitingManualProviderSwitch,
+        Cancelled
+    }
+}

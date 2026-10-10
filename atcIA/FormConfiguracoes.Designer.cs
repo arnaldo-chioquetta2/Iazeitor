@@ -174,6 +174,7 @@ namespace atcIA
             "Groq",
             "Mistral",
             "KimiOpenAICompatible",
+            "KimiOfficialMoonshot",
             "DeepSeek",
             "Mixtral"});
             this.cboProviderType.Location = new System.Drawing.Point(191, 247);
@@ -212,6 +213,7 @@ namespace atcIA
             this.txtAiKey.Name = "txtAiKey";
             this.txtAiKey.Size = new System.Drawing.Size(308, 20);
             this.txtAiKey.TabIndex = 17;
+            this.txtAiKey.UseSystemPasswordChar = true;
             //
             // label9
             //
@@ -337,6 +339,7 @@ namespace atcIA
             this.labelKimiHeader.Size = new System.Drawing.Size(187, 20);
             this.labelKimiHeader.TabIndex = 30;
             this.labelKimiHeader.Text = "Kimi / OpenAI Compatível";
+            this.labelKimiHeader.Visible = false;
             //
             // labelKimiBaseUrl
             //
@@ -346,6 +349,7 @@ namespace atcIA
             this.labelKimiBaseUrl.Size = new System.Drawing.Size(59, 13);
             this.labelKimiBaseUrl.TabIndex = 31;
             this.labelKimiBaseUrl.Text = "Base URL:";
+            this.labelKimiBaseUrl.Visible = false;
             //
             // textBoxKimiBaseUrl
             //
@@ -353,6 +357,7 @@ namespace atcIA
             this.textBoxKimiBaseUrl.Name = "textBoxKimiBaseUrl";
             this.textBoxKimiBaseUrl.Size = new System.Drawing.Size(445, 20);
             this.textBoxKimiBaseUrl.TabIndex = 32;
+            this.textBoxKimiBaseUrl.Visible = false;
             //
             // labelKimiApiKey
             //
@@ -362,6 +367,7 @@ namespace atcIA
             this.labelKimiApiKey.Size = new System.Drawing.Size(48, 13);
             this.labelKimiApiKey.TabIndex = 33;
             this.labelKimiApiKey.Text = "API Key:";
+            this.labelKimiApiKey.Visible = false;
             //
             // textBoxKimiApiKey
             //
@@ -370,6 +376,7 @@ namespace atcIA
             this.textBoxKimiApiKey.Size = new System.Drawing.Size(445, 20);
             this.textBoxKimiApiKey.TabIndex = 34;
             this.textBoxKimiApiKey.UseSystemPasswordChar = true;
+            this.textBoxKimiApiKey.Visible = false;
             //
             // labelKimiModel
             //
@@ -379,6 +386,7 @@ namespace atcIA
             this.labelKimiModel.Size = new System.Drawing.Size(45, 13);
             this.labelKimiModel.TabIndex = 35;
             this.labelKimiModel.Text = "Modelo:";
+            this.labelKimiModel.Visible = false;
             //
             // cboKimiModel
             //
@@ -394,6 +402,7 @@ namespace atcIA
             this.cboKimiModel.Name = "cboKimiModel";
             this.cboKimiModel.Size = new System.Drawing.Size(150, 21);
             this.cboKimiModel.TabIndex = 36;
+            this.cboKimiModel.Visible = false;
             //
             // chkKimiEnableSearch
             //
@@ -404,6 +413,7 @@ namespace atcIA
             this.chkKimiEnableSearch.TabIndex = 37;
             this.chkKimiEnableSearch.Text = "Search";
             this.chkKimiEnableSearch.UseVisualStyleBackColor = true;
+            this.chkKimiEnableSearch.Visible = false;
             //
             // chkKimiEnableThinking
             //
@@ -414,6 +424,7 @@ namespace atcIA
             this.chkKimiEnableThinking.TabIndex = 38;
             this.chkKimiEnableThinking.Text = "Thinking";
             this.chkKimiEnableThinking.UseVisualStyleBackColor = true;
+            this.chkKimiEnableThinking.Visible = false;
             //
             // ckGitDiff
             //
